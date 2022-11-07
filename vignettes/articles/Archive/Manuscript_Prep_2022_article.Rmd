@@ -1,0 +1,1462 @@
+---
+title: "Reproducible R Script and Output for the Manuscript Preparation"
+output: html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval=T,
+  fig.width = 12,
+  fig.height = 10,
+  cache=TRUE
+)
+library(pander)
+panderOptions("table.split.table",Inf)
+```
+
+
+## Some Additional Notes on Data Pre-process
+- take only Lake water body and River water body data.
+- SSD data from L.Posthuma SSDs
+- Keep only "total water" to avoid replications
+- remove rows with Missing observed value ("O" category) and unreliable meta info ("U" category).
+- Remove 85 rows with measurement has been confirmed by country to be taken from a highly polluted area - Among the  616795 entries, 67155 are Metal concentration measurements. After subtracting the metal reference concentration, 11013 result Mean values are negative, 6723 result max values are negative, they are modified to be 0. 
+- LOQ.type = "LOQ.T0", The values that are below LOQ are set to 0 $\mu$g/L.
+- LOQ.type = "LOQ.T1", The values that are below LOQ are set to $x*LOQ$g/L.
+- use monitoring site, Year as grouping variables to calculated the number of measured, the number of detected, and the ratio as detection rate. 
+
+
+- CEFIC-MIAT decision tree table (Valloton &Proce 2016) 
+- Group I: Risk driven by single chemicals HI >1 & MaxHQ >1
+- Group II:No concern HI < 1, MaxHQ < 1
+- Group IIIA: Mixtures concern driven by 1 or 2 chemicals. HI>1 & Max HI <1 & MCR < 2
+- Group IIIB: Mixture risk. HI > 1 & MaxHQ < 1 & MCR >2
+
+
+
+
+## General Setup 
+
+
+```{r}
+library(WaterBase)
+library(quantreg)
+library(tidyverse)
+library(scales)
+library(ggthemes) ## for color blind palettes
+data("Data.AggBySiteID.2")
+tmp1 <- Data.AggBySiteID.2 %>% group_by(Site.Year) %>% summarise(N=length(Site.Year)) %>% mutate(n1=mean(N))
+data("Data.SSD")
+data("chemclass")
+CAS.SSD = unique(Data.AggBySiteID.2$CAS)[unique(Data.AggBySiteID.2$CAS)%in%as.character(unique(Data.SSD$CAS.))]
+Data.SSD.1 = Data.SSD[Data.SSD$CAS.%in%CAS.SSD,]; Data.SSD.1 = droplevels(Data.SSD.1)
+```
+
+
+```{r}
+Res_Max <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                      Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),Data.SSD.1=Data.SSD.1,useAllMax=T)
+Res_Mean <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                       Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),Data.SSD.1=Data.SSD.1,useAllMean=T)
+
+```
+
+
+## Fig 1 Chemical Class Sunburst Plot Generation
+
+
+```{r}
+library(plotly)
+cheminfo <- Data.AggBySiteID.2 %>%left_join(chemclass)%>%
+    dplyr::group_by(class,Chem.Group) %>% dplyr::summarise(Ndetected=sum(AboveLOQ),Nmeasured=length(AboveLOQ)) 
+
+tmp <- cheminfo %>% ungroup %>%
+    dplyr::group_by(class) %>% dplyr::summarise(Ndetected=sum(Ndetected),Nmeasured=sum(Nmeasured)) 
+
+parent <- cheminfo$class
+##labels <- paste0(cheminfo$Chem.Group,"\n",cheminfo$Ndetected,"\n",cheminfo$Nmeasured)
+labels <- paste0(cheminfo$Chem.Group,"\n",cheminfo$Nmeasured)
+
+values <- cheminfo$Nmeasured
+ids <- paste0(parent,"-",labels)
+
+parent <- c("",rep("All",nrow(tmp)),parent)
+#labels <- c(paste0("All (",nrow(Data.AggBySiteID.2),")"),paste0(tmp$class,"\n",tmp$Ndetected,"\n",tmp$Nmeasured),labels)
+labels <- c(paste0("All (",nrow(Data.AggBySiteID.2),")"),paste0(tmp$class,"\n",tmp$Nmeasured),labels)
+values <- c(nrow(Data.AggBySiteID.2),tmp$Nmeasured,values)
+ids <- c("All",tmp$class,ids)
+
+d <- data.frame(parent,labels,values,ids)
+library(plotly)
+
+gsub(d$ids,"-*","")
+parentcolor <- c("#FFFFFF","#FF8000","#009900","#0066CC")
+childcolor <- plyr::mapvalues(gsub("-.*","",d$ids)[-c(1:4)],from=c("Banned_Listed","Current_Use","Metal"),to=c("#FFB266","#4C9900","#0080FF"))
+d$cols <- c(parentcolor,childcolor)
+
+
+
+fig <- plot_ly(d,
+    ids=~ids, 
+  labels = ~labels,
+  parents = ~parent,
+  values =~values,
+  colors=~cols,
+  branchvalues = 'total',
+  type = 'sunburst',
+  marker = list(colors = list("#FFFFFF","#FF8000","#009900","#800080"))
+
+)
+fig
+# layout(fig,showlegend=T)
+```
+
+
+
+```{r}
+library(plotly)
+cheminfo <- Data.AggBySiteID.2 %>%left_join(chemclass)%>%
+    dplyr::group_by(class1,Chem.Group) %>% dplyr::summarise(Ndetected=sum(AboveLOQ),Nmeasured=length(AboveLOQ)) 
+
+tmp <- cheminfo %>% ungroup %>%
+    dplyr::group_by(class1) %>% dplyr::summarise(Ndetected=sum(Ndetected),Nmeasured=sum(Nmeasured)) 
+
+parent <- cheminfo$class1
+labels <- paste0(cheminfo$Chem.Group,"\n",cheminfo$Ndetected,"\n",cheminfo$Nmeasured)
+values <- cheminfo$Nmeasured
+ids <- paste0(parent,"-",labels)
+
+parent <- c("",rep("All",nrow(tmp)),parent)
+labels <- c(paste0("All (",nrow(Data.AggBySiteID.2),")"),paste0(tmp$class1,"\n",tmp$Ndetected,"\n",tmp$Nmeasured),labels)
+values <- c(nrow(Data.AggBySiteID.2),tmp$Nmeasured,values)
+ids <- c("All",tmp$class1,ids)
+
+d <- data.frame(parent,labels,values,ids)
+library(plotly)
+
+# gsub(d$ids,"-*","")
+# parentcolor <- c("#FFFFFF","#FF8000","#009900","#0066CC")
+# childcolor <- plyr::mapvalues(gsub("-.*","",d$ids)[-c(1:4)],from=c("Banned_Listed","Current_Use","Metal"),to=c("#FFB266","#4C9900","#0080FF"))
+# d$cols <- c(parentcolor,childcolor)
+
+
+
+fig <- plot_ly(d,
+    ids=~ids, 
+  labels = ~labels,
+  parents = ~parent,
+  values =~values,
+  colors=~cols,
+  branchvalues = 'total',
+  type = 'sunburst',
+marker = list(colors = list("#FFFFFF","#FF8000","#009900","#800080"))
+)
+fig
+```
+
+
+
+```{r fig.cap="Ndetected by ChemClass"}
+library(plotly)
+cheminfo <- Data.AggBySiteID.2 %>%left_join(chemclass)%>%
+    dplyr::group_by(class1,Chem.Group) %>% dplyr::summarise(Ndetected=sum(AboveLOQ),Nmeasured=length(AboveLOQ)) 
+
+tmp <- cheminfo %>% ungroup %>%
+    dplyr::group_by(class1) %>% dplyr::summarise(Ndetected=sum(Ndetected),Nmeasured=sum(Nmeasured)) 
+
+parent <- cheminfo$class1
+labels <- paste0(cheminfo$Chem.Group,"\n",cheminfo$Ndetected)
+values <- cheminfo$Ndetected
+ids <- paste0(parent,"-",labels)
+
+parent <- c("",rep("All",nrow(tmp)),parent)
+labels <- c(paste0("All (",sum(tmp$Ndetected),")"),paste0(tmp$class1,"\n",tmp$Ndetected),labels)
+values <- c(sum(tmp$Ndetected),tmp$Ndetected,values)
+ids <- c("All",tmp$class1,ids)
+
+d <- data.frame(parent,labels,values,ids)
+library(plotly)
+
+# gsub(d$ids,"-*","")
+# parentcolor <- c("#FFFFFF","#FF8000","#009900","#0066CC")
+# childcolor <- plyr::mapvalues(gsub("-.*","",d$ids)[-c(1:4)],from=c("Banned_Listed","Current_Use","Metal"),to=c("#FFB266","#4C9900","#0080FF"))
+# d$cols <- c(parentcolor,childcolor)
+
+
+
+fig <- plot_ly(d,
+    ids=~ids, 
+  labels = ~labels,
+  parents = ~parent,
+  values =~values,
+  colors=~cols,
+  branchvalues = 'total',
+  type = 'sunburst',
+marker = list(colors = list("#FFFFFF","#FF8000","#009900","#800080"))
+)
+fig
+```
+
+
+## Figure 2: HI-MCR plots and distribution in the CEFIC-MIAT chemical mixtures risk categories. 
+
+Refined_HQ_Metals_PAHs: all chemicals included. Risk of metal elements and PAHs refined. Excluded_Metals: all chemicals included except for metal elements. Current_use: All chemicals included except for metals, PAHs, and legacy chemicals. Group I: The mixture presents a potential risk already based on individual components. GroupII: The assessment does not identify a concern. GroupIIIa: The majority of the risk presented by the mixture is driven by one substance. GroupIIIb: The potential risk is driven by multiple components. N.Site: Number of monitoring sites. N.CAS: Number of chemicals. N.Sample: Number of Site-Year combinations evaluated.
+
+
+### Figure 2 Option 1
+
+- Note that the function is named by fig 1 since the order was set for an older version of the manuscript. 
+```{r}
+recting <- rbind(data.frame(xmin=-Inf,xmax=1,ymin=-Inf,ymax=Inf,col="green"),
+                 data.frame(xmin=1,xmax=Inf,ymin=0,ymax=2,col="red"),
+                 data.frame(xmin=1,xmax=Inf,ymin=2,ymax=Inf,col="yellow"))
+```
+
+
+
+```{r}
+f1 <- generate_fig1_1(Res_Mean,Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"), cutoff=0,df = data.frame(x=1e-6,y=9),
+                      test="Chronic", chemclass=chemclass,used=c("Mean"))
+f1$p1+facet_grid(.~Exclusion.CAS,scale="free")+scale_y_continuous(breaks=c(2,4,6,8),limits = c(1,10),expand = c(0,0))
+if(interactive()){
+  ggsave("inst/Additional_Figures/Figure1-ave.png",width = 12,height=5,dpi=300)
+}
+# f1$Res_1$used
+
+f1_2 <- generate_fig1_1(Res_Max,
+                        Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Max"))
+
+```
+
+
+### Figure 2, Option 2 (Manusript Version)
+
+```{r fig2-manuscript,fig.cap="Figure 2: HI-MCR plots and distribution in the CEFIC-MIAT chemical mixtures risk categories."}
+Res_1 <- rbind(f1$Res_1,f1_2$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max")))
+Nclass_1 <- rbind(f1$Nclass_1%>%mutate(used="Mean"),f1_2$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))
+N_CAS_Site_1 <- rbind(f1$N_CAS_Site_1%>%mutate(used="Mean"),f1_2$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))
+
+p1 <- ggplot(Res_1,aes(x=HI,y=MCR))+geom_point(aes(col=Group_AF1))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(used~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))
+
+fig2_tagdata <- expand.grid(Exclusion.CAS=c("Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),used=c("Mean","Max"))
+fig2_tagdata$x <- rep(1e-10,6)
+fig2_tagdata$y <- rep(9.6,6)
+fig2_tagdata$Tag <- LETTERS[1:6]
+p1 <- p1+geom_text(data=fig2_tagdata,aes(x=x,y=y,label=Tag),size=6)
+p1 <- p1  +scale_y_continuous(breaks=c(2,4,6,8),limits = c(1,10),expand = c(0,0))
+p1
+if(interactive()){
+  p1
+  ggsave("inst/manuscript_2022/Figure1_ava_max.png",width = 15,height=8,dpi=300)
+  ggsave("inst/manuscript_2022/Figure1_ava_max.pdf",width = 15,height=8)
+  cairo_ps("inst/manuscript_2022/Figure1_ava_max.eps",width = 13)
+  p1
+  dev.off()
+  
+  
+}
+```
+
+### Figure 2, Option 3
+
+```{r}
+
+f1 <- generate_fig1_1(Res=Res_Mean,
+                      cutoff=5,df = data.frame(x=1e-6,y=9),
+                      test="Chronic", chemclass=chemclass, used=c("Mean"))
+f1$p1+facet_grid(.~Exclusion.CAS,scale="free")
+if(interactive()){
+  ggsave("inst/Additional_Figures/Figure1-ave_n5.png",width = 12,height=5,dpi=300)
+}
+# f1$Res_1$used
+
+f1_2 <- generate_fig1_1(Res_Max,
+                        cutoff=5,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass, used=c("Max"))
+
+```
+
+
+```{r}
+Res_1 <- rbind(f1$Res_1,f1_2$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max")))
+Nclass_1 <- rbind(f1$Nclass_1%>%mutate(used="Mean"),f1_2$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))
+N_CAS_Site_1 <- rbind(f1$N_CAS_Site_1%>%mutate(used="Mean"),f1_2$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))
+ggplot(Res_1,aes(x=HI,y=MCR))+geom_point(aes(col=Group_AF1))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(used~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))+scale_y_continuous(breaks=c(2,4,6,8),limits = c(1,10),expand = c(0,0))
+
+if(interactive()){
+  ggsave("inst/Additional_Figures/Figure1_ava_max_n5.png",width = 15,height=8,dpi=300)
+}
+```
+
+
+### Figure 2, Option 3 cutoff 10!
+
+```{r}
+
+f1 <- generate_fig1_1(Res_Mean,
+                      cutoff=10,df = data.frame(x=1e-6,y=9),
+                      test="Chronic", chemclass=chemclass,used=c("Mean"))
+f1$p1+facet_grid(.~Exclusion.CAS,scale="free")
+if(interactive()){
+  ggsave("inst/Additional_Figures/Figure1-ave_n10.png",width = 12,height=5,dpi=300)
+}
+# f1$Res_1$used
+
+f1_2 <- generate_fig1_1(Res_Max,
+                        cutoff=10,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Max"))
+
+```
+
+
+```{r}
+Res_1 <- rbind(f1$Res_1,f1_2$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max")))
+Nclass_1 <- rbind(f1$Nclass_1%>%mutate(used="Mean"),f1_2$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))
+N_CAS_Site_1 <- rbind(f1$N_CAS_Site_1%>%mutate(used="Mean"),f1_2$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))
+ggplot(Res_1,aes(x=HI,y=MCR))+geom_point(aes(col=Group_AF1))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(used~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))
+
+if(interactive()){
+  ggsave("inst/Additional_Figures/Figure1_ava_max_n10.png",width = 15,height=8,dpi=300)
+}
+```
+
+### Figure 2, Option 4: 
+
+- use Refined_HQ_Metals_PAHs/Excluded_Metals/Excluded_Metals_Excluding_6_Driver chemicals (Diclofenac, Ibuprofen, Chlorpyrifos, diuron, Isoproturon, Caffeine)
+
+```{r}
+exclude.cas <- c("Diclofenac", "Ibuprofen", "Chlorpyrifos", "diuron", "Isoproturon", "Caffeine") 
+chemclass.driver <- chemclass %>% filter( (Substance %in% exclude.cas))
+
+Res_Max_6driver <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                              Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),
+                              exclude.substances= chemclass.driver$CAS,Data.SSD.1=Data.SSD.1,useAllMax=T)
+Res_Mean_6driver <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                               Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),exclude.substances= chemclass.driver$CAS,Data.SSD.1=Data.SSD.1,useAllMean=T)
+f1 <- generate_fig1_1(Res_Mean,exclude.cas = NULL,
+                      cutoff=0,df = data.frame(x=1e-6,y=9),
+                      test="Chronic", chemclass=chemclass,used=c("Mean"))
+f1_6 <- generate_fig1_1(Res_Mean_6driver,exclude.cas = exclude.cas,
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Mean"))
+
+
+
+f1_2 <- generate_fig1_1(Res_Max,
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Max"),exclude.cas = NULL)
+f1_2_6 <- generate_fig1_1(Res_Max_6driver,exclude.cas = exclude.cas,
+                          cutoff=0,df = data.frame(x=1e-6,y=9),
+                          test="Chronic", chemclass=chemclass,used=c("Max"))
+
+```
+
+
+
+- use Refined_HQ_Metals_PAHs/Excluded_Metals/Excluded_Metals_Excluding_6_Driver chemicals (Diclofenac, Ibuprofen, Chlorpyrifos, diuron, Isoproturon, Caffeine)
+
+```{r}
+exclude.cas <- c("Diclofenac", "Ibuprofen", "Chlorpyrifos", "diuron", "Isoproturon", "Caffeine")
+which(!exclude.cas %in% chemclass$Substance) ## check if all excluded included in the chemclass data
+chemclass.driver <- chemclass %>% filter( (Substance %in% exclude.cas))
+
+Res_Max_6driver <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                              Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),
+                              exclude.substances= chemclass.driver$CAS,Data.SSD.1=Data.SSD.1,useAllMax=T)
+Res_Mean_6driver <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                               Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),exclude.substances= chemclass.driver$CAS,Data.SSD.1=Data.SSD.1,useAllMean=T)
+f1 <- generate_fig1_1(Res_Mean,exclude.cas = NULL,
+                      cutoff=0,df = data.frame(x=1e-6,y=9),
+                      test="Chronic", chemclass=chemclass,used=c("Mean"))
+f1_6 <- generate_fig1_1(Res_Mean_6driver,exclude.cas = exclude.cas,
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Mean"))
+
+
+
+f1_2 <- generate_fig1_1(Res_Max,
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Max"),exclude.cas = NULL)
+f1_2_6 <- generate_fig1_1(Res_Max_6driver,exclude.cas = exclude.cas,
+                          cutoff=0,df = data.frame(x=1e-6,y=9),
+                          test="Chronic", chemclass=chemclass,used=c("Max"))
+
+```
+
+
+
+```{r}
+exclude.cas <- c(c("Diclofenac", "Ibuprofen", "Chlorpyrifos", "diuron", "Isoproturon", "Caffeine"),
+                 c("Benzo(b)fluorantheen","Tributyltin (kation)","Benzo(a)pyreen","Metolachlor","Terbuthylazine","Bis(2-ethylhexyl) phthalate","Deethylatrazine","Benzo(ghi)peryleen","indeno(123cd)pyreen","DDT"))
+which(!exclude.cas %in% chemclass$Substance) ## check if all excluded included in the chemclass data
+chemclass.driver <- chemclass %>% filter( (Substance %in% exclude.cas))
+
+Res_Max_16driver <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                               Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),
+                               exclude.substances= chemclass.driver$CAS,Data.SSD.1=Data.SSD.1,useAllMax=T)
+Res_Mean_16driver <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                                Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),exclude.substances= chemclass.driver$CAS,Data.SSD.1=Data.SSD.1,useAllMean=T)
+f1 <- generate_fig1_1(Res_Mean,exclude.cas = NULL,
+                      cutoff=0,df = data.frame(x=1e-6,y=9),
+                      test="Chronic", chemclass=chemclass,used=c("Mean"))
+f1_16 <- generate_fig1_1(Res_Mean_16driver,exclude.cas = exclude.cas,
+                         cutoff=0,df = data.frame(x=1e-6,y=9),
+                         test="Chronic", chemclass=chemclass,used=c("Mean"))
+
+
+
+f1_2 <- generate_fig1_1(Res_Max,
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Max"),exclude.cas = NULL)
+f1_2_16 <- generate_fig1_1(Res_Max_16driver,exclude.cas = exclude.cas,
+                           cutoff=0,df = data.frame(x=1e-6,y=9),
+                           test="Chronic", chemclass=chemclass,used=c("Max"))
+
+```
+
+
+```{r}
+Res_1 <- rbind(f1$Res_1,f1_2$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+Res_1_16 <- rbind(f1_16$Res_1,f1_2_16$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max"))) %>% filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals-16drivers")
+Res_1 <- rbind(Res_1,Res_1_16)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals-16drivers" )))
+
+
+
+Nclass_1 <- rbind(f1$Nclass_1%>%mutate(used="Mean"),f1_2$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+Nclass_1_16 <- rbind(f1_16$Nclass_1%>%mutate(used="Mean"),f1_2_16$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals-16drivers")
+Nclass_1 <- rbind(Nclass_1,Nclass_1_16)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals-16drivers" )))
+
+
+N_CAS_Site_1 <- rbind(f1$N_CAS_Site_1%>%mutate(used="Mean"),f1_2$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+N_CAS_Site_1_16 <- rbind(f1_16$N_CAS_Site_1%>%mutate(used="Mean"),f1_2_16$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals-16drivers")
+N_CAS_Site_1 <- rbind(N_CAS_Site_1,N_CAS_Site_1_16)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals-16drivers" )))
+
+ggplot(Res_1,aes(x=HI,y=MCR))+geom_point(aes(col=Group_AF1))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(used~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))
+
+if(interactive()){
+  ggsave("inst/Additional_Figures/Figure1_ava_max_16driver.png",width = 15,height=8,dpi=300)
+}
+```
+
+
+
+## Figure 3: Relationship between HI and the number of monitored chemicals. 
+
+Hazard Index (HI) as a function of the number of chemicals measured (N.measured) or detected (Ndetected) per station. Data is presented for all chemicals in the Waterbase rivers database with the risk of PAHs refined and metals excluded from the analysis (Excluded_Metals), and for current use chemicals only (Current_Use). HI is calculated based on two alternative scenarios for the contribution to risk of non-detected substances: LOQ.T0: zero contribution to risk of non-detects, and LOQ.T1: non-detected substances contribute as if they were detected at their LOQ. N.Sites: Number of monitoring sites. N.CAS: Number of substances included in the analysis. N.Samples: Number of analytical samples. II: % of samples in Group II (no concern). The blue horizontal line is HI = 1 the reference HI for concern. Red lines depict  smoothed non-parametric quantile regressions for the average HI, Q05 and Q95 of the regression of HI as a function of the number of chemicals measured or detected. 
+
+- log10(HI)-N.Chemicals Measured
+- Changes: Keep only N_Measured Top row, compare mean and max too. 
+- 4 Pannel. Row: Mean/Max. Column: Excluded_metals/Current_use. Factor: LOQ.T0/LOQ.T1 (color blinded friendly)
+- Remove % Samples in Group II from labels
+- Keep only 50% and 95% of smooth regression lines
+
+
+
+Looking at Figure 2, we would like to determine where the HI stabilize as the number of measured chemicals increase. We used the additive quantile regression smoothing model the relationship and use the average of the last 10 predicted values as the stablization limit. 
+
+
+```{r checkPlatean_manuscript}
+calcLimit <- function(tmp_1,used1="Mean",Ntype1="Nmeasured",LOQ.type1="LOQ.T0",Exclusion.CAS1="Excluded_Metals",newdata=data.frame(N=150:169)){
+  tmp_A <- subset(tmp_1,used==used1 & Ntype==Ntype1 & LOQ.type==LOQ.type1 & Exclusion.CAS==Exclusion.CAS1)
+  mod <- rqss(HI~qss(N),data=tmp_A)
+  mean(predict(mod,newdata=newdata))
+}
+
+limitdat <- expand.grid(LOQ.type=c("LOQ.T0","LOQ.T1"),Exclusion.CAS=c("Excluded_Metals","Current_Use"),used=c("Mean","Max"))
+limitdat$limit <- NA
+for(i in 1:nrow(limitdat)){
+ if(limitdat[i,"Exclusion.CAS"]=="Current_Use") limitdat$limit[i] <- calcLimit(tmp_1 = tmp_1,LOQ.type = limitdat[i,"LOQ.type"],Exclusion.CAS1 = limitdat[i,"Exclusion.CAS"],newdata=data.frame(N=66:75),used=limitdat[i,"used"]) else{
+   limitdat$limit[i] <- calcLimit(tmp_1 = tmp_1,LOQ.type = limitdat[i,"LOQ.type"],Exclusion.CAS1 = limitdat[i,"Exclusion.CAS"],newdata=data.frame(N=150:169:75),used=limitdat[i,"used"]) 
+ }
+}
+
+flextable::flextable(limitdat)
+
+
+```
+
+
+```{r checkPlateau, eval=FALSE,include=FALSE}
+# rolling median
+rolling_median <- function(formula, data, n_roll = 11, ...) {
+  x <- data$x[order(data$x)]
+  y <- data$y[order(data$x)]
+  y <- zoo::rollmedian(y, n_roll, na.pad = TRUE)
+  structure(list(x = x, y = y, f = approxfun(x, y)), class = "rollmed")
+}
+
+predict.rollmed <- function(mod, newdata, ...) {
+  setNames(mod$f(newdata$x), newdata$x)
+}
+
+
+
+
+tmp_A <- subset(tmp_1,used=="Mean"&Ntype=="Nmeasured" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals")
+ggplot(data =tmp_A,aes(x=N,y=HI))+geom_point()+scale_y_log10()+geom_smooth(formula = HI ~ N, method = "rolling_median", se = FALSE, method.args = list(n_roll = 100)) 
+mod <- rqss(HI~qss(N),data=tmp_A)
+predict(mod,newdata=data.frame(N=169))
+mean(predict(mod,newdata=data.frame(N=150:169)))
+plot(predict(mod,newdata=data.frame(N=1:170)),log="y")
+
+tmp_A <- tmp_A %>% mutate(x=N,y=HI)
+
+z=rolling_median(y~x,tmp_A,n_roll=50)
+range(z$y,na.rm = T)
+plot(na.omit(z$y))
+
+# tmp_A$HI1 <- log(tmp_A$HI)
+# tmp_A <- tmp_A%>%filter(!is.infinite(HI1))
+# library(drda)
+# fit_A <- drda(HI1~N,data=tmp_A,mean_function = "gompertz",is_log = F,na.action = "na.omit")
+# plot(fit_A)
+# summary(fit_A)
+# exp(coef(fit_A)["beta"])
+
+tmp_A1 <- subset(tmp_1,used=="Mean"&Ntype=="Nmeasured" & LOQ.type=="LOQ.T1" & Exclusion.CAS=="Excluded_Metals")
+tmp_A1 <- tmp_A1 %>% mutate(x=N,y=HI)
+z=rolling_median(y~x,tmp_A1,n_roll=10)
+range(z$y,na.rm = T)
+plot(na.omit(z$y))
+mod <- rqss(HI~qss(N),data=tmp_A1)
+mean(predict(mod,newdata=data.frame(N=150:169)))
+
+tmp_A1$HI1 <- log(tmp_A1$HI)
+tmp_A1 <- tmp_A1%>%filter(!is.infinite(HI1))
+library(drda)
+fit_A1 <- drda(HI~N,data=tmp_A1,mean_function = "logistic4",is_log = FALSE,max_iter = 50000)
+summary(fit_A1)
+exp(coef(fit_A1)["beta"])
+
+tmp_B <- subset(tmp_1,used=="Mean"&Ntype=="Nmeasured" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Current_Use")
+tmp_B$HI1 <- log(tmp_B$HI)
+mod <- rqss(HI~qss(N),data=tmp_B,tau=0.5,lambda = 10)
+mean(predict(mod,newdata=data.frame(N=66:75)))
+
+plot(predict(mod,newdata=data.frame(N=1:75)),log="y")
+
+
+# tmp_B <- tmp_B%>%filter(!is.infinite(HI1))
+# library(drda)
+# fit_B <- drda(HI1~N,data=tmp_B,mean_function = "gompertz",max_iter = 50000,is_log = FALSE)
+# exp(coef(fit_B)["beta"])
+# summary(fit_B)
+# exp(predict(fit_B)[which.max(tmp_B$N)])
+
+
+tmp_B1 <- subset(tmp_1,used=="Mean"&Ntype=="Nmeasured" & LOQ.type=="LOQ.T1" & Exclusion.CAS=="Current_Use")
+tmp_B1$HI1 <- log(tmp_B1$HI)
+mod <- rqss(HI~qss(N),data=tmp_B1,tau=0.5)
+mean(predict(mod,newdata=data.frame(N=66:75)))
+
+
+tmp_B1 <- tmp_B1%>%filter(!is.infinite(HI1))
+
+fit_B1 <- drda(HI1~N,data=tmp_B1,mean_function = "logistic4",max_iter = 50000)
+plot(fit_B1)
+summary(fit_B1)
+exp(coef(fit_B1)["beta"])
+
+
+tmp_C <- subset(tmp_1,used=="Max"&Ntype=="Nmeasured" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals")
+tmp_C$HI1 <- log(tmp_C$HI)
+tmp_C <- tmp_C%>%filter(!is.infinite(HI1))
+library(drda)
+fit <- drda(HI1~N,data=tmp_C,mean_function = "logistic4",max_iter = 50000)
+plot(fit)
+summary(fit)
+exp(coef(fit)["beta"])
+
+tmp_D <- subset(tmp_1,used=="Max"&Ntype=="Nmeasured" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Current_Use")
+tmp_D$HI1 <- log(tmp_D$HI)
+tmp_D <- tmp_D%>%filter(!is.infinite(HI1))
+library(drda)
+fit <- drda(HI1~N,data=tmp_D,mean_function = "logistic4",max_iter = 50000)
+plot(fit)
+summary(fit)
+exp(coef(fit)["beta"])
+#local({  Asym <- 10; lrc <- -4; c0 <- 43
+#  SSasympOff(tmp_1, Asym, lrc, c0) # response and gradient
+#})
+#fm1 <- nls(HI_Chronic ~ SSasympOff(N, Asym, lrc, c0), data =subset(tmp_1,Ntype=="Nmeasured" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals"))
+
+library(drc)
+model <- drm(HI_Chronic ~ N, fct = AR.3(),data =subset(tmp_1,Ntype=="Ndetected" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals"))
+summary(model)
+plot(model)
+predict(model,data.frame(N=78))
+
+model <- drm(HI_Chronic ~ N, fct = AR.3(),data =subset(tmp_1,Ntype=="Nmeasured" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals"))
+summary(model)
+plot(model)
+predict(model,data.frame(N=169))
+
+
+model1 <- rqss(HI_Chronic ~ qss(N,constraint = "VI"),data =subset(tmp_1,Ntype=="Nmeasured" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals"))
+summary(model1)
+predict(model1,data.frame(N=max(subset(tmp_1,Ntype=="Nmeasured" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals")$N)))
+
+
+model2 <- rqss(HI_Chronic ~ qss(N,constraint = "VI"),data =subset(tmp_1,Ntype=="Ndetected" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals"))
+summary(model2)
+predict(model2,data.frame(N=max(subset(tmp_1,Ntype=="Ndetected" & LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_Metals")$N)))
+predict(model2,data.frame(N=70))
+model <- rqss(HI_Chronic ~ qss(N),data =subset(tmp_1,Ntype=="Nmeasured" & LOQ.type=="LOQ.T1" & Exclusion.CAS=="Excluded_Metals"))
+summary(model)
+predict(model,data.frame(N=max(subset(tmp_1,Ntype=="Nmeasured" & LOQ.type=="LOQ.T1" & Exclusion.CAS=="Excluded_Metals")$N)))
+
+
+model <- rqss(HI_Chronic ~ qss(N),data =subset(tmp_1,Ntype=="Ndetected" & LOQ.type=="LOQ.T1" & Exclusion.CAS=="Excluded_Metals"))
+summary(model)
+predict(model,data.frame(N=max(subset(tmp_1,Ntype=="Ndetected" & LOQ.type=="LOQ.T1" & Exclusion.CAS=="Excluded_Metals")$N)))
+```
+
+
+```{r}
+fig2_mean <- generate_fig2(Res_Mean,
+                           cutoff=0,df =  data.frame(x=200,y=1e-6),
+                           test="Chronic",used=c("Mean"),
+                           exclude.cas=NULL,chemclass=chemclass)
+fig2_max <- generate_fig2(Res_Max,
+                          cutoff=0,df =  data.frame(x=200,y=1e-6),
+                          test="Chronic",used=c("Max"),
+                          exclude.cas=NULL,chemclass=chemclass)
+
+tmp_1 <- rbind(fig2_mean$tmp_1,fig2_max$tmp_1)%>%mutate(used=factor(used,level=c("Mean","Max")))%>%filter(Ntype=="Nmeasured")
+sumtmp_1 <- rbind(fig2_mean$sumtmp_1,fig2_max$sumtmp_1)%>%mutate(used=factor(used,level=c("Mean","Max")))%>%filter(Ntype=="Nmeasured")
+N_CAS_Site_1 <- rbind(fig2_mean$N_CAS_Site_1,fig2_max$N_CAS_Site_1)%>%mutate(used=factor(used,level=c("Mean","Max")))%>%filter(Ntype=="Nmeasured")
+
+tmp_0 <- tmp_1
+
+tmp_1 <- tmp_1 %>% filter(Ntype=="Nmeasured")
+
+
+
+N_CAS_Site_1$y <- 0.00005
+sumtmp_1$y <- 1e-07
+N_CAS_Site_1$x1 <- sumtmp_1$x1
+
+tagdata <- expand.grid(used=c("Mean","Max"),Exclusion.CAS=c("Excluded_Metals", "Current_Use"))
+tagdata$Tag <- c("A","C","B","D")
+tagdata$x <- rep(1,4)
+tagdata$y <- rep(500,4)
+
+p2 <- ggplot(tmp_1,aes(x=N,y=HI_Chronic,col=LOQ.type))+geom_point(pch=".",alpha=0.1)+geom_hline(yintercept = 1,col="#009E73")+facet_grid(used~Exclusion.CAS,scales="free_x")+ annotate("rect", xmin = 0, xmax = Inf, ymin = 0, ymax = 1,fill="yellow",alpha=0.1)+geom_quantile(method = "rqss", quantiles = c(0.5), formula=y ~ qss(x, lambda = 1),lwd=1.2)+geom_quantile(method = "rqss", quantiles = c(0.95), formula=y ~ qss(x, lambda = 4),lty=2)+scale_y_log10(breaks=c(c(1e-4,1e-2,1e+0,1e+2)))+geom_text(data=N_CAS_Site_1,aes(x=x1,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)),hjust=1,color="black")+theme(strip.text.x = element_text(size =12))+theme(legend.position = "bottom")+geom_text(data=tagdata,aes(x=x,y=y,label=Tag),col="black")+ scale_colour_tableau()+ylab("HI")#+coord_cartesian(clip = 'off')+geom_text(data=sumtmp_1,aes(x=x1,y=y,label=paste0("II: ",formatC(Perc,digits = 1,format="f"),"%")),hjust=1) ## remove group II label
+p2 + scale_colour_colorblind()
+
+
+p2.1 <- ggplot(tmp_1,aes(x=N,y=HI_Chronic,col=LOQ.type))+geom_point(pch=".")+geom_hline(yintercept = 1,col="#009E73")+facet_grid(used~Exclusion.CAS,scales="free_x")+ annotate("rect", xmin = 0, xmax = Inf, ymin = 0, ymax = 1,fill="yellow",alpha=0.1)+geom_quantile(method = "rqss", quantiles = c(0.5), formula=y ~ qss(x, lambda = 1),lwd=1.2)+geom_quantile(method = "rqss", quantiles = c(0.95), formula=y ~ qss(x, lambda = 4),lty=2)+scale_y_log10(breaks=c(c(1e-4,1e-2,1e+0,1e+2)))+geom_text(data=N_CAS_Site_1,aes(x=x1,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)),hjust=1,color="black")+theme(strip.text.x = element_text(size =12))+theme(legend.position = "bottom")+geom_text(data=tagdata,aes(x=x,y=y,label=Tag),col="black")+ scale_colour_tableau()+ylab("HI")
+
+if(interactive()){
+  p2.1 ## the bigger dot version
+  ggsave("inst/manuscript_2022/Figure2-Chronic_free_x_tag.png",width = 9,height=6,dpi=300)
+  p2 ## the alpha =0.1 dot version.
+  ggsave("inst/manuscript_2022/Figure2-Chronic_free_x_tag.pdf",width = 9,height=6)
+  cairo_ps("inst/manuscript_2022/Figure2-Chronic_free_x_tag.eps",width = 9)
+  p2.1
+  dev.off()
+}
+
+```
+
+
+## Figure 4 
+
+### Figure 4 Option 1
+
+Main panels: Bar plots presenting Hazard Index (HI) per sample for all samples with HI > 1 ordered based on HI for the waterbase rivers database for all chemicals. Boxplots inserted in each main panel represents the percentage of HI contributed by the first, second, third, and all other risk drivers in the mixtures. Panels from left to right present data for all chemicals in the Waterbase rivers with the risk of metals and PAHs refined (Refined_HQ_Metals_PAH), all chemicals in the Waterbase rivers excluding metals with the risk of PAHs refined (Excluded_Metals), and current use chemicals only (Current_Use). N.Samples: Number of monitoring samples included in the analysis (having an HI>1 for the specific dataset). Plots are presented for the LOQ.T0 assumption only.
+
+- Get Driver Data 
+- note that only ALl with refined Metals and PAHs would have Acute Driver data results. As we have defined the threshold being HI greater than 1. 
+
+```{r fig.cap="Figure 4: Risk contribution of first, second and third risk drivers."}
+threshold <- 1
+cutoff <- 0
+threshold_current = 1
+fig3 <- gen_fig3_wrapper(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_HQ_Metals_PAH", "Excluded_Metals","Current_Use"), Data.SSD.1=Data.SSD.1,threshold = 1,include0=F,cutoff = 0,threshold_current = 1)
+
+
+fig3 
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"current",threshold_current,".png"),width = 12,height=5,dpi=300)
+  ggsave(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"current",threshold_current,".pdf"),width = 12,height=5)
+  cairo_ps(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"current",threshold_current,".eps"),width = 12,height = 4)
+  fig3
+  dev.off()
+}
+```
+
+```{r fig.cap="using Mean, N measured > 10"}
+threshold <- 1
+cutoff <- 10
+threshold_current = 1
+fig3 <- gen_fig3_wrapper(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_HQ_Metals_PAH", "Excluded_Metals","Current_Use"),
+                         Data.SSD.1=Data.SSD.1,threshold = 1,include0=F,cutoff=10,threshold_current = 1)
+fig3
+
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"cutoff-",cutoff,".png"),width = 12,height=5,dpi=300)
+  ggsave(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"cutoff-",cutoff,".pdf"),width = 12,height=5)
+  cairo_ps(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"cutoff-",cutoff,"current",threshold_current,".eps"),width = 12,height = 4)
+  fig3
+  dev.off()
+}
+```
+
+### Figure 4 Option 1 with Max concentration being used
+
+
+```{r}
+fig3 <- gen_fig3_wrapper(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_HQ_Metals_PAH", "Excluded_Metals","Current_Use"),
+                         Data.SSD.1=Data.SSD.1,threshold = 1,include0=F,useAllMax=T,cutoff = 0,threshold_current = 1)
+fig3
+if(interactive()){
+  
+  ggsave(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"-max.png"),width = 12,height=5,dpi=300)
+  ggsave(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"-max.pdf"),width = 12,height=5,dpi=300)
+  cairo_ps(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"-max.eps"),width = 12,height = 4)
+  fig3
+  dev.off()
+}
+```
+
+### Figure 4 Option 1 with Max concentration being used and only N.Measure > 10
+
+```{r}
+fig3 <- gen_fig3_wrapper(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_HQ_Metals_PAH", "Excluded_Metals","Current_Use"),
+                         Data.SSD.1=Data.SSD.1,threshold = 1,include0=F,useAllMax=T,cutoff = 0)
+fig3
+cutoff <-0 
+if(interactive()){
+  
+  ggsave(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"N",cutoff,"-max.png"),width = 12,height=5,dpi=300)
+  cairo_ps(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"N",cutoff,"-max.eps"),width = 12,height = 4)
+  fig3
+  dev.off()
+}
+```
+
+
+```{r}
+
+fig3 <- gen_fig3_wrapper(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_HQ_Metals_PAH", "Excluded_Metals","Current_Use"),
+                         Data.SSD.1=Data.SSD.1,threshold = 1,include0=F,useAllMax=T,cutoff=10)
+fig3
+cutoff <- 10
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"cutoff-",cutoff,"-max.png"),width = 12,height=5,dpi=300)
+  cairo_ps(paste0("inst/manuscript_2022/Figure3-Chronic-annotated-site-year-",threshold,"cutoff-",cutoff,"-max.eps"),width = 12,height = 4)
+  fig3
+  dev.off()
+}
+```
+
+
+
+### Figure 4 Option 2
+
+- Ordered stations and boxplots presenting the sum of HI by Legacy & Current-use
+- Excluded_Metals & Excluded_Metals (Only stations that N.measured>10 current use chemicals)
+
+
+```{r}
+threshold <- 1
+LegacyData <- sep_legacy (Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"),
+                          Exclusion.CAS = c( "Excluded_Metals"),
+                          Data.SSD.1=Data.SSD.1,
+                          threshold=threshold,include0=F,cutoff=0)
+LegacyData <-  LegacyData %>% filter( test=="Chronic") %>% mutate(Exclusion.CAS="Excluded_Metals")
+LegacyData2 <- sep_legacy (Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"),
+                           Exclusion.CAS = c( "Excluded_Metals"),
+                           Data.SSD.1=Data.SSD.1,
+                           threshold=threshold,include0=F,cutoff=10)
+LegacyData2 <-  LegacyData2 %>% filter( test=="Chronic") %>% mutate(Exclusion.CAS="Excluded_Metals_n10")
+LegacyData3 <- rbind(LegacyData,  LegacyData2 )
+
+
+driverdata3 <- LegacyData3 %>% group_by(Exclusion.CAS) %>% nest()%>% 
+  mutate(data=purrr::map(data,function(df){
+    df1<- df%>%group_by(Site.Year,monitoringSiteIdentifier,phenomenonTimeReferenceYear,HI) %>% nest()
+    df <- df1[order(df1$HI,decreasing = T),]%>% add_column(x=1:nrow(df1))%>%unnest(cols = c(data))%>% ungroup
+    return(df)}))%>%
+  unnest(cols = c(data))
+
+nsample3 <- LegacyData3 %>% group_by(Exclusion.CAS)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax))# %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_Metals")))
+
+
+sumdriver3 <- LegacyData3 %>% group_by(Exclusion.CAS,Site.Year) %>% mutate(sumHQ=sum(HQ))%>% ungroup %>% group_by(Exclusion.CAS,Component,Site.Year) %>% summarise(Perc=HQ/sumHQ) %>% mutate(Component=factor(Component,levels=c( "Banned_Listed", "Current_Use" )))
+sumdriver3%>% group_by(Exclusion.CAS,Component)%>% summarise(Perc.90=sum(Perc>0.9)/length(Site.Year))
+# # A tibble: 4 × 3
+# # Groups:   Exclusion.CAS [2]
+#   Exclusion.CAS       Component     Perc.90
+#   <chr>               <fct>           <dbl>
+# 1 Excluded_Metals     Banned_Listed  0.519 
+# 2 Excluded_Metals     Current_Use    0.0956
+# 3 Excluded_Metals_n10 Banned_Listed  0.303 
+# 4 Excluded_Metals_n10 Current_Use    0.118 
+fig3 <- gen_fig3_2component(driverdata3,nsample3, sumdriver3)
+fig3
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-Legacy_Current",threshold,".png"),width = 9,height=6,dpi=300)
+  
+  
+}
+library(gghalves)
+fig3 <- gen_fig3_2component(driverdata3,nsample3, sumdriver3,plot="violinplot")
+fig3
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-Legacy_Current_violin",threshold,".png"),width = 9,height=6,dpi=300)
+}
+```
+
+
+
+
+### Figure 4 Option 2 with all max
+
+- Ordered stations and boxplots presenting the sum of HI by Legacy & Current-use
+- Excluded_Metals & Excluded_Metals (Only stations that N.measured>10 current use chemicals)
+
+
+```{r}
+threshold <- 1
+LegacyData <- sep_legacy (Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"),
+                          Exclusion.CAS = c( "Excluded_Metals"),
+                          Data.SSD.1=Data.SSD.1,
+                          threshold=threshold,include0=F,cutoff=0,useAllMax=TRUE)
+LegacyData <-  LegacyData %>% filter( test=="Chronic") %>% mutate(Exclusion.CAS="Excluded_Metals")
+
+LegacyData2 <- sep_legacy (Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"),
+                           Exclusion.CAS = c( "Excluded_Metals"),
+                           Data.SSD.1=Data.SSD.1,
+                           threshold=threshold,include0=F,cutoff=10,useAllMax=TRUE)
+LegacyData2 <-  LegacyData2 %>% filter( test=="Chronic") %>% mutate(Exclusion.CAS="Excluded_Metals_n10")
+
+LegacyData3 <- rbind(LegacyData,  LegacyData2 )
+
+
+driverdata3 <- LegacyData3 %>% group_by(Exclusion.CAS) %>% nest()%>% 
+  mutate(data=purrr::map(data,function(df){
+    df1<- df%>%group_by(Site.Year,monitoringSiteIdentifier,phenomenonTimeReferenceYear,HI) %>% nest()
+    df <- df1[order(df1$HI,decreasing = T),]%>% add_column(x=1:nrow(df1))%>%unnest(cols = c(data))%>% ungroup
+    return(df)}))%>%
+  unnest(cols = c(data))
+
+nsample3 <- LegacyData3 %>% group_by(Exclusion.CAS)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax))# %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_Metals")))
+
+
+sumdriver3 <- LegacyData3 %>% group_by(Exclusion.CAS,Site.Year) %>% mutate(sumHQ=sum(HQ))%>% ungroup %>% group_by(Exclusion.CAS,Component,Site.Year) %>% summarise(Perc=HQ/sumHQ) %>% mutate(Component=factor(Component,levels=c( "Banned_Listed", "Current_Use" )))
+sumdriver3%>% group_by(Exclusion.CAS,Component)%>% summarise(Perc.90=sum(Perc>0.9)/length(Site.Year))
+# # A tibble: 4 × 3
+# # Groups:   Exclusion.CAS [2]
+#   Exclusion.CAS       Component     Perc.90
+#   <chr>               <fct>           <dbl>
+# 1 Excluded_Metals     Banned_Listed  0.519 
+# 2 Excluded_Metals     Current_Use    0.0956
+# 3 Excluded_Metals_n10 Banned_Listed  0.303 
+# 4 Excluded_Metals_n10 Current_Use    0.118 
+fig3 <- gen_fig3_2component(driverdata3,nsample3, sumdriver3)
+fig3
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-Legacy_Current",threshold,"-max.png"),width = 9,height=6,dpi=300)
+  ggsave(paste0("inst/manuscript_2022/Figure3-Legacy_Current",threshold,"-max.pdf"),width = 9,height=6)
+  cairo_ps(paste0("inst/manuscript_2022/Figure3-Legacy_Current",threshold,"-max.eps"),width = 12,height = 4)
+  fig3
+  dev.off()
+}
+library(gghalves)
+fig3 <- gen_fig3_2component(driverdata3,nsample3, sumdriver3,plot="violinplot")
+fig3
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-Legacy_Current_violin",threshold,"-max.png"),width = 9,height=6,dpi=300)
+  cairo_ps(paste0("inst/manuscript_2022/Figure3-Legacy_Current_violin",threshold,"-max.eps"),width = 12,height = 4)
+  fig3
+  dev.off()
+}
+```
+
+### Figure 4 Option 3
+
+- Ordered stations and boxplots presenting the sum of HI by 6_Driver chemicals vs all other chemicals
+- Excluded_Metals & Excluded_Metals (Only stations that N.measured>10 current use chemicals)
+
+```{r}
+exclude.cas <- c("Diclofenac", "Ibuprofen", "Chlorpyrifos", "diuron", "Isoproturon", "Caffeine")
+which(!exclude.cas %in% chemclass$Substance) 
+d6data <- chemclass%>%filter(Substance %in% exclude.cas)
+
+exclude.cas <-c(c("Diclofenac", "Ibuprofen", "Chlorpyrifos", "diuron", "Isoproturon", "Caffeine"),
+                 c("Benzo(b)fluorantheen","Tributyltin (kation)","Benzo(a)pyreen","Metolachlor","Terbuthylazine","Bis(2-ethylhexyl) phthalate","Deethylatrazine","Benzo(ghi)peryleen","indeno(123cd)pyreen","DDT"))
+which(!exclude.cas %in% chemclass$Substance) ## check if all excluded included in the chemclass data
+d16data <- chemclass %>% filter( (Substance %in% exclude.cas))
+```
+
+
+```{r}
+drivers <- d6data$CAS
+
+D6Data <- sep_6driver (Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"),
+                       Exclusion.CAS = c( "Excluded_Metals"),
+                       Data.SSD.1=Data.SSD.1,
+                       threshold=threshold,include0=F,cutoff=0,drivers=drivers)
+D6Data <-  D6Data %>% filter( test=="Chronic") %>% mutate(Exclusion.CAS="Excluded_Metals")
+D6Data2 <- sep_6driver (Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"),
+                        Exclusion.CAS = c( "Excluded_Metals"),
+                        Data.SSD.1=Data.SSD.1,
+                        threshold=threshold,include0=F,cutoff=10)
+D6Data2 <-  D6Data2 %>% filter( test=="Chronic") %>% mutate(Exclusion.CAS="Excluded_Metals_n10")
+D6Data3 <- rbind(D6Data,D6Data2)
+
+
+driverdata3 <- D6Data3 %>% group_by(Exclusion.CAS,Component) %>% summarise() 
+driverdata3 <- D6Data3 %>% group_by(Exclusion.CAS) %>% nest()%>% 
+  mutate(data=purrr::map(data,function(df){
+    df1<- df%>%group_by(Site.Year,monitoringSiteIdentifier,phenomenonTimeReferenceYear,HI) %>% nest()
+    df <- df1[order(df1$HI,decreasing = T),]%>% add_column(x=1:nrow(df1))%>%unnest(cols = c(data))%>% ungroup
+    return(df)}))%>%
+  unnest(cols = c(data))
+
+nsample3 <- D6Data3 %>% group_by(Exclusion.CAS)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax))# %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_Metals")))
+
+
+sumdriver3 <- D6Data3 %>% group_by(Exclusion.CAS,Site.Year) %>% mutate(sumHQ=sum(HQ))%>% ungroup %>% group_by(Exclusion.CAS,Component,Site.Year) %>% summarise(Perc=HQ/sumHQ) %>% mutate(Component=factor(Component,levels=c( "6 Drivers", "All Other" )))
+
+sumdriver3%>% group_by(Exclusion.CAS,Component)%>% summarise(Perc.90=sum(Perc>0.9)/length(Site.Year))
+
+# # A tibble: 4 × 3
+# # Groups:   Exclusion.CAS [2]
+#   Exclusion.CAS       Component Perc.90
+#   <chr>               <fct>       <dbl>
+# 1 Excluded_Metals     6 Drivers   0.209
+# 2 Excluded_Metals     All Other   0.230
+# 3 Excluded_Metals_n10 6 Drivers   0.125
+# 4 Excluded_Metals_n10 All Other   0.193
+
+fig3.2 <- gen_fig3_2component(driverdata3,nsample3, sumdriver3)
+fig3.2
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-6Drivers",threshold,".png"),width = 9,height=6,dpi=300)
+}
+
+fig3.2 <- gen_fig3_2component(driverdata3,nsample3, sumdriver3,plot = "violinplot")
+fig3.2
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-6Drivers-violin-",threshold,".png"),width = 9,height=6,dpi=300)
+}
+```
+
+
+
+
+```{r}
+drivers <- d16data$CAS
+
+D6Data <- sep_6driver (Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"),
+                       Exclusion.CAS = c( "Excluded_Metals"),
+                       Data.SSD.1=Data.SSD.1,
+                       threshold=threshold,include0=F,cutoff=0,drivers=drivers)
+D6Data <-  D6Data %>% filter( test=="Chronic") %>% mutate(Exclusion.CAS="Excluded_Metals")
+D6Data2 <- sep_6driver (Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"),
+                        Exclusion.CAS = c( "Excluded_Metals"),
+                        Data.SSD.1=Data.SSD.1,
+                        threshold=threshold,include0=F,cutoff=10)
+D6Data2 <-  D6Data2 %>% filter( test=="Chronic") %>% mutate(Exclusion.CAS="Excluded_Metals_n10")
+D6Data3 <- rbind(D6Data,D6Data2)
+
+
+driverdata3 <- D6Data3 %>% group_by(Exclusion.CAS,Component) %>% summarise() 
+driverdata3 <- D6Data3 %>% group_by(Exclusion.CAS) %>% nest()%>% 
+  mutate(data=purrr::map(data,function(df){
+    df1<- df%>%group_by(Site.Year,monitoringSiteIdentifier,phenomenonTimeReferenceYear,HI) %>% nest()
+    df <- df1[order(df1$HI,decreasing = T),]%>% add_column(x=1:nrow(df1))%>%unnest(cols = c(data))%>% ungroup
+    return(df)}))%>%
+  unnest(cols = c(data))
+
+nsample3 <- D6Data3 %>% group_by(Exclusion.CAS)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax))# %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_Metals")))
+
+
+sumdriver3 <- D6Data3 %>% group_by(Exclusion.CAS,Site.Year) %>% mutate(sumHQ=sum(HQ))%>% ungroup %>% group_by(Exclusion.CAS,Component,Site.Year) %>% summarise(Perc=HQ/sumHQ) %>% mutate(Component=factor(Component,levels=c( "16 Drivers", "All Other" )))
+
+sumdriver3%>% group_by(Exclusion.CAS,Component)%>% summarise(Perc.90=sum(Perc>0.9)/length(Site.Year))
+
+# # A tibble: 4 × 3
+# # Groups:   Exclusion.CAS [2]
+#   Exclusion.CAS       Component Perc.90
+#   <chr>               <fct>       <dbl>
+# 1 Excluded_Metals     6 Drivers   0.209
+# 2 Excluded_Metals     All Other   0.230
+# 3 Excluded_Metals_n10 6 Drivers   0.125
+# 4 Excluded_Metals_n10 All Other   0.193
+
+fig3.2 <- gen_fig3_2component(driverdata3,nsample3, sumdriver3)
+fig3.2
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-6Drivers",threshold,".png"),width = 9,height=6,dpi=300)
+}
+
+fig3.2 <- gen_fig3_2component(driverdata3,nsample3, sumdriver3,plot = "violinplot")
+fig3.2
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure3-6Drivers-violin-",threshold,".png"),width = 9,height=6,dpi=300)
+}
+```
+
+
+
+## Figure 5: 
+
+- note function name being generate_fig4a() and generate_fig4b()
+ 
+
+### based on Mean exposure
+
+```{r}
+driverdata <- getDriverData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_HQ_Metals_PAH","Excluded_Metals"), Data.SSD.1=Data.SSD.1,threshold = 1)
+
+sumCAS <- driverdata %>% filter(HI>1) %>% group_by(LOQ.type,Exclusion.CAS,test)%>%mutate(nSample=length(unique(Site.Year))) %>% group_by(LOQ.type,Exclusion.CAS,test,CAS,nSample) %>%nest() %>% mutate(nappear=purrr::map(data,nrow))%>% unnest(cols=c(nappear))%>% mutate(freq=nappear/nSample ) %>% select(-data) %>% group_by(LOQ.type,Exclusion.CAS,test)%>% nest() %>% mutate(data=purrr::map(data,function(df){
+  df <- df[order(df$freq,decreasing = T),]
+  df <- df%>%add_column(x=1:nrow(df))
+  return(df)
+}))%>%unnest(cols = c(data))%>%ungroup #%>% mutate(x=paste0(x,"-",CAS))
+
+sumCAS <- sumCAS %>% left_join(chemclass[,c("CAS","Substance","Chem.Group","class")]%>%mutate(CAS=as.character(CAS)))%>%filter(CAS!="")%>% filter(x<=41) 
+
+sumCAS_mean <- sumCAS
+
+for(excludecas in c("Refined_HQ_Metals_PAH", "Excluded_Metals")){
+  fig4a <- generate_fig4a(sumCAS = sumCAS, Exclusion.CAS = excludecas,chemclass=chemclass)
+  fig4a <- fig4a+theme(strip.text.x = element_text(size=12),axis.text=element_text(size=12,hjust=1),legend.direction = "horizontal")
+  if(interactive()){
+    fig4a
+    ggsave(paste0("inst/manuscript_2022/Figure4a-Chronic-",excludecas,".png"),width = 10,height=8,dpi=300)
+    ggsave(paste0("inst/manuscript_2022/Figure4a-Chronic-",excludecas,".pdf"),width = 10,height=8)
+    cairo_ps(paste0("inst/manuscript_2022/Figure4a-Chronic-",excludecas,".eps"),width = 10,height=8)
+    fig4a
+    dev.off()
+  }
+  write.csv(sumCAS%>% mutate(Sub1=paste0(x,freq,"*",Substance)) %>% mutate(Sub1=factor(Sub1,levels=rev(unique(Sub1))))%>%filter(Exclusion.CAS==excludecas &test=="Chronic")%>% select(c(test,LOQ.type,Exclusion.CAS,freq,Substance)),file=paste0("Driver_",excludecas,".csv"))
+}
+
+
+
+
+```
+
+
+### based on Maximum exposure
+
+```{r}
+driverdata_max <- getDriverData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_HQ_Metals_PAH","Excluded_Metals"), Data.SSD.1=Data.SSD.1,threshold = 1,useAllMax=T)
+
+sumCAS <- driverdata_max %>% filter(HI>1) %>% group_by(LOQ.type,Exclusion.CAS,test)%>%mutate(nSample=length(unique(Site.Year))) %>% group_by(LOQ.type,Exclusion.CAS,test,CAS,nSample) %>%nest() %>% mutate(nappear=purrr::map(data,nrow))%>% unnest(cols=c(nappear))%>% mutate(freq=nappear/nSample ) %>% select(-data) %>% group_by(LOQ.type,Exclusion.CAS,test)%>% nest() %>% mutate(data=purrr::map(data,function(df){
+  df <- df[order(df$freq,decreasing = T),]
+  df <- df%>%add_column(x=1:nrow(df))
+  return(df)
+}))%>%unnest(cols = c(data))%>%ungroup #%>% mutate(x=paste0(x,"-",CAS))
+
+sumCAS <- sumCAS %>% left_join(chemclass[,c("CAS","Substance","Chem.Group","class")]%>%mutate(CAS=as.character(CAS)))%>%filter(CAS!="")%>% filter(x<=41) 
+sumCAS_max <- sumCAS
+
+for(excludecas in c("Refined_HQ_Metals_PAH", "Excluded_Metals")){
+  fig4a <- generate_fig4a(sumCAS = sumCAS, Exclusion.CAS = excludecas,chemclass=chemclass)
+  fig4a <- fig4a+theme(strip.text.x = element_text(size=12),axis.text=element_text(size=12,hjust=1),legend.direction = "vertical")
+  if(interactive()){
+    fig4a
+    ggsave(paste0("inst/manuscript_2022/Figure4a-Chronic-Max-",excludecas,".png"),width = 10,height=8,dpi=300)
+    cairo_ps(paste0("inst/manuscript_2022/Figure4a-Chronic-Max",excludecas,".eps"),width = 10,height=8)
+    fig4a
+    dev.off()
+  }
+  write.csv(sumCAS%>% mutate(Sub1=paste0(x,freq,"*",Substance)) %>% mutate(Sub1=factor(Sub1,levels=rev(unique(Sub1))))%>%filter(Exclusion.CAS==excludecas &test=="Chronic")%>% select(c(test,LOQ.type,Exclusion.CAS,freq,Substance)),file=paste0("Driver_",excludecas,"_Max.csv"))
+  
+}
+
+```
+
+```{r}
+fig4a_mean <- generate_fig4a(sumCAS = sumCAS_mean, Exclusion.CAS = excludecas,chemclass=chemclass,facet="Mean")
+  fig4a_mean <- fig4a_mean+theme(strip.text.x = element_text(size=12),axis.text=element_text(size=12,hjust=1),legend.direction = "horizontal")
+  fig4a_mean <- fig4a_mean+labs(tag="A")
+  
+  fig4a_max <- generate_fig4a(sumCAS = sumCAS_max, Exclusion.CAS = excludecas,chemclass=chemclass,facet="Max")
+  fig4a_max <- fig4a_max+theme(strip.text.x = element_text(size=12),axis.text=element_text(size=12,hjust=1),legend.direction = "horizontal")
+  fig4a_max <- fig4a_max+labs(tag="B") ## adding tags to each panel
+library(patchwork)
+fig4a_combined <- fig4a_mean+fig4a_max+ plot_layout(guides = "collect")&theme(legend.position='bottom')
+fig4a_combined
+if(interactive()){
+  ggsave(paste0("inst/manuscript_2022/Figure4a_combined_tag",".png"),width = 15,height=9,dpi=300)
+  ggsave(paste0("inst/manuscript_2022/Figure4a_combined_tag",".pdf"),width = 15,height=9)
+  
+  cairo_ps(paste0("inst/manuscript_2022/Figure4a_combined_tag",".eps"),width = 15,height = 9)
+  fig4a_combined
+  dev.off()
+}
+```
+
+
+
+```{r}
+d1 <- sumCAS_mean%>%filter(freq>0.1 & test=="Chronic" & Exclusion.CAS=="Excluded_Metals")
+d2 <- sumCAS_max%>%filter(freq>0.1& test=="Chronic" & Exclusion.CAS=="Excluded_Metals")
+#sumCAS_mean$CAS
+driver10 <- unique(c(d1$CAS,d2$CAS))
+# usethis::use_data("driver10")
+d1 <- sumCAS_mean%>%filter(freq>0.05& test=="Chronic" & Exclusion.CAS=="Excluded_Metals")
+d2 <- sumCAS_max%>%filter(freq>0.05& test=="Chronic" & Exclusion.CAS=="Excluded_Metals")
+#sumCAS_mean$CAS
+driver5 <- unique(c(d1$CAS,d2$CAS))
+# usethis::use_data(driver5)
+```
+
+
+- calculating the contribution of the 15 drivers (driver 10 in the code) that appear more than 10% in the top3 drivers for sampling site and year. 
+
+```{r}
+Data.AggBySiteID.3a <-  preprocessWaterbase(Data.AggBySiteID.2,chemclass,LOQ.type = "LOQ.T0",
+                                              Data.SSD.1 = Data.SSD.1,Exclusion.CAS="Excluded_Metals")
+
+Data.AggBySiteID.3a%>%filter(CAS %in% driver5 )%>% summarise(HI =sum(HQ.Chronic))/sum(Data.AggBySiteID.3a$HQ.Chronic)
+
+driver5HQ <- Data.AggBySiteID.3a%>%filter(CAS %in% driver5 )
+range(driver5HQ$HQ.Chronic)
+range(Data.AggBySiteID.3a$HQ.Chronic)
+which.max(Data.AggBySiteID.3a$HQ.Chronic)
+Data.AggBySiteID.3a[295829,]
+hist(log(Data.AggBySiteID.3a$HQ.Chronic))
+ids <- which(Data.AggBySiteID.3a$HQ.Chronic>50)
+sum(Data.AggBySiteID.3a$HQ.Chronic[ids])/sum(Data.AggBySiteID.3a$HQ.Chronic)
+length(unique(Data.AggBySiteID.3a$Site.Year[ids]))
+20/length(unique(Data.AggBySiteID.3a$Site.Year))
+## exclude the samples with HI <=1 ?
+# samples<- Data.AggBySiteID.3a %>% group_by(Site.Year)%>% summarise(HI=sum(HQ.Chronic,na.rm=T))%>%filter(HI>1)
+# Data.AggBySiteID.3a <- Data.AggBySiteID.3a %>% filter(Site.Year %in% samples$Site.Year)
+# 
+# Data.AggBySiteID.3a%>%filter(CAS %in% driver5 )%>% summarise(HI =sum(HQ.Chronic))/sum(Data.AggBySiteID.3a$HQ.Chronic)
+```
+
+```{r}
+Data.AggBySiteID.3b <-  preprocessWaterbase(Data.AggBySiteID.2,chemclass,LOQ.type = "LOQ.T0",
+                                              Data.SSD.1 = Data.SSD.1,Exclusion.CAS="Current_Use")
+Data.AggBySiteID.3b%>%filter(CAS %in% driver5)%>% summarise(HI =sum(HQ.Chronic))/sum(Data.AggBySiteID.3b$HQ.Chronic)
+
+# samples<- Data.AggBySiteID.3b %>% group_by(Site.Year)%>% summarise(HI=sum(HQ.Chronic,na.rm=T))%>%filter(HI>1)
+# Data.AggBySiteID.3b <- Data.AggBySiteID.3b %>% filter(Site.Year %in% samples$Site.Year)
+# 
+# Data.AggBySiteID.3b%>%filter(CAS %in% driver5)%>% summarise(HI =sum(HQ.Chronic))/sum(Data.AggBySiteID.3b$HQ.Chronic)
+```
+
+
+```{r}
+
+Res_Max_driver10 <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                              Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),
+                              exclude.substances= driver10,Data.SSD.1=Data.SSD.1,useAllMax=T)
+Res_Mean_driver10 <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                               Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),exclude.substances= driver10,Data.SSD.1=Data.SSD.1,useAllMean=T)
+
+Res_Max_driver5 <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                              Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),
+                              exclude.substances= driver5,Data.SSD.1=Data.SSD.1,useAllMax=T)
+Res_Mean_driver5 <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                               Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),exclude.substances= driver5,Data.SSD.1=Data.SSD.1,useAllMean=T)
+
+f1 <- generate_fig1_1(Res_Mean,exclude.cas = NULL,
+                      cutoff=0,df = data.frame(x=1e-6,y=9),
+                      test="Chronic", chemclass=chemclass,used=c("Mean"))
+f1_driver10 <- generate_fig1_1(Res_Mean_driver10,exclude.cas = driver10,
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Mean"))
+f1_driver5 <- generate_fig1_1(Res_Mean_driver5,exclude.cas = driver5,
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Mean"))
+
+
+
+f1_2 <- generate_fig1_1(Res_Max,
+                        cutoff=0,df = data.frame(x=1e-6,y=9),
+                        test="Chronic", chemclass=chemclass,used=c("Max"),exclude.cas = NULL)
+f1_2_driver10 <- generate_fig1_1(Res_Max_driver10,exclude.cas = driver10,
+                          cutoff=0,df = data.frame(x=1e-6,y=9),
+                          test="Chronic", chemclass=chemclass,used=c("Max"))
+f1_2_driver5 <- generate_fig1_1(Res_Max_driver5,exclude.cas = driver5,
+                          cutoff=0,df = data.frame(x=1e-6,y=9),
+                          test="Chronic", chemclass=chemclass,used=c("Max"))
+
+```
+
+```{r}
+recting <- rbind(data.frame(xmin=-Inf,xmax=1,ymin=-Inf,ymax=Inf,col="green"),
+                 data.frame(xmin=1,xmax=Inf,ymin=0,ymax=2,col="red"),
+                 data.frame(xmin=1,xmax=Inf,ymin=2,ymax=Inf,col="yellow"))
+Res_1 <- rbind(f1$Res_1,f1_2$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+Res_1_driver10 <- rbind(f1_driver10$Res_1,f1_2_driver10$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max"))) %>% filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>10%")
+Res_1 <- rbind(Res_1,Res_1_driver10)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals_drivers>10%" )))
+
+
+
+Nclass_1 <- rbind(f1$Nclass_1%>%mutate(used="Mean"),f1_2$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+Nclass_1_driver10 <- rbind(f1_driver10$Nclass_1%>%mutate(used="Mean"),f1_2_driver10$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>10%")
+Nclass_1 <- rbind(Nclass_1,Nclass_1_driver10)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals_drivers>10%" )))
+
+
+N_CAS_Site_1 <- rbind(f1$N_CAS_Site_1%>%mutate(used="Mean"),f1_2$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+N_CAS_Site_1_driver10 <- rbind(f1_driver10$N_CAS_Site_1%>%mutate(used="Mean"),f1_2_driver10$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>10%")
+N_CAS_Site_1 <- rbind(N_CAS_Site_1,N_CAS_Site_1_driver10)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals_drivers>10%" )))
+
+fig1_driver10 <- ggplot(Res_1,aes(x=HI,y=MCR))+geom_point(aes(col=Group_AF1))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(used~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))
+fig1_driver10
+if(interactive()){
+  ggsave("inst/manuscript_2022/Figure1_ava_max_driver10.png",width = 15,height=8,dpi=300)
+  ggsave("inst/manuscript_2022/Figure1_ava_max_driver10.pdf",width = 15,height=8)
+  cairo_ps(paste0("inst/manuscript_2022/Figure1_ava_max_driver10.eps"),width = 15,height = 8)
+  fig1_driver10
+  dev.off()
+}
+```
+
+
+## Excluded_Metals_drivers>5%
+
+```{r}
+recting <- rbind(data.frame(xmin=-Inf,xmax=1,ymin=-Inf,ymax=Inf,col="green"),
+                 data.frame(xmin=1,xmax=Inf,ymin=0,ymax=2,col="red"),
+                 data.frame(xmin=1,xmax=Inf,ymin=2,ymax=Inf,col="yellow"))
+Res_1 <- rbind(f1$Res_1,f1_2$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+Res_1_driver5 <- rbind(f1_driver5$Res_1,f1_2_driver5$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max"))) %>% filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>5%")
+Res_1 <- rbind(Res_1,Res_1_driver5)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals_drivers>5%" )))
+
+
+
+Nclass_1 <- rbind(f1$Nclass_1%>%mutate(used="Mean"),f1_2$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+Nclass_1_driver5 <- rbind(f1_driver5$Nclass_1%>%mutate(used="Mean"),f1_2_driver5$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>5%")
+Nclass_1 <- rbind(Nclass_1,Nclass_1_driver5)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals_drivers>5%" )))
+
+
+N_CAS_Site_1 <- rbind(f1$N_CAS_Site_1%>%mutate(used="Mean"),f1_2$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS!="Current_Use" )
+N_CAS_Site_1_driver5 <- rbind(f1_driver5$N_CAS_Site_1%>%mutate(used="Mean"),f1_2_driver5$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>5%")
+N_CAS_Site_1 <- rbind(N_CAS_Site_1,N_CAS_Site_1_driver5)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Refined_HQ_Metals_PAH", "Excluded_Metals",  "Excluded_Metals_drivers>5%" )))
+
+fig1_driver5 <- ggplot(Res_1,aes(x=HI,y=MCR))+geom_point(aes(col=Group_AF1))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(used~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))
+fig1_driver5 <- fig1_driver5+scale_y_continuous(breaks=c(2,4,6,8),limits = c(1,10),expand = c(0,0))
+fig1_driver5
+if(interactive()){
+  ggsave("inst/manuscript_2022/Figure1_ava_max_driver5.png",width = 15,height=8,dpi=300)
+  ggsave("inst/manuscript_2022/Figure1_ava_max_driver5.pdf",width = 15,height=8)
+  cairo_ps(paste0("inst/manuscript_2022/Figure1_ava_max_driver5.eps"),width = 15,height = 8)
+  fig1_driver5
+  dev.off()
+  
+}
+```
+
+
+
+```{r fig6_manusript,fig.cap="CEFIC-MIAT plot without driver chemicals that occurs in the top3 drivers >10% or >5% "}
+
+
+Res_1 <- rbind(f1$Res_1,f1_2$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS=="Excluded_Metals")
+Res_1_driver5 <- rbind(f1_driver5$Res_1,f1_2_driver5$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max"))) %>% filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>5%")
+Res_1_driver10 <- rbind(f1_driver10$Res_1,f1_2_driver5$Res_1)%>%mutate(used=factor(used,levels=c("Mean","Max"))) %>% filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>10%")
+Res_1 <- rbind(rbind(Res_1,Res_1_driver10),Res_1_driver5)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Excluded_Metals",  "Excluded_Metals_drivers>10%","Excluded_Metals_drivers>5%" )))
+
+
+
+Nclass_1 <- rbind(f1$Nclass_1%>%mutate(used="Mean"),f1_2$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS=="Excluded_Metals" )
+Nclass_1_driver5 <- rbind(f1_driver5$Nclass_1%>%mutate(used="Mean"),f1_2_driver5$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>5%")
+Nclass_1_driver10 <- rbind(f1_driver10$Nclass_1%>%mutate(used="Mean"),f1_2_driver10$Nclass_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>10%")
+Nclass_1 <- rbind(Nclass_1,Nclass_1_driver10,Nclass_1_driver5)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Excluded_Metals",  "Excluded_Metals_drivers>10%","Excluded_Metals_drivers>5%" )))
+
+
+N_CAS_Site_1 <- rbind(f1$N_CAS_Site_1%>%mutate(used="Mean"),f1_2$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>% filter(Exclusion.CAS=="Excluded_Metals")
+N_CAS_Site_1_driver5 <- rbind(f1_driver5$N_CAS_Site_1%>%mutate(used="Mean"),f1_2_driver5$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>5%")
+N_CAS_Site_1_driver10 <- rbind(f1_driver10$N_CAS_Site_1%>%mutate(used="Mean"),f1_2_driver10$N_CAS_Site_1%>%mutate(used="Max"))%>%mutate(used=factor(used,levels=c("Mean","Max")))%>%  filter(Exclusion.CAS=="Excluded_Metals" ) %>% mutate(Exclusion.CAS="Excluded_Metals_drivers>10%")
+N_CAS_Site_1 <- rbind(N_CAS_Site_1,N_CAS_Site_1_driver10,N_CAS_Site_1_driver5)%>%mutate(Exclusion.CAS= factor(Exclusion.CAS,levels=c( "Excluded_Metals",  "Excluded_Metals_drivers>10%","Excluded_Metals_drivers>5%" )))
+
+fig6<- ggplot(Res_1%>%filter(Exclusion.CAS!="Excluded_Metals"),aes(x=HI,y=MCR))+geom_point(aes(col=Group_AF1))+geom_text(data=N_CAS_Site_1%>%filter(Exclusion.CAS!="Excluded_Metals"),aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1%>%filter(Exclusion.CAS!="Excluded_Metals"),aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(used~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))
+fig6_tagdata <- expand.grid(Exclusion.CAS=c("Excluded_Metals_drivers>10%","Excluded_Metals_drivers>5%"),used=c("Mean","Max"))
+fig6_tagdata$x <- rep(1e-09,4)
+fig6_tagdata$y <- rep(9.5,4)
+fig6_tagdata$Tag <- LETTERS[1:4]
+fig6 <- fig6+geom_text(data=fig6_tagdata,aes(x=x,y=y,label=Tag),size=6)
+fig6 <- fig6+scale_y_continuous(breaks=c(2,4,6,8),limits = c(1,10),expand = c(0,0))
+fig6
+if(interactive()){
+  ggsave("inst/manuscript_2022/Figure6_tag.png",width = 10,height=8,dpi=300)
+  ggsave("inst/manuscript_2022/Figure6_tag.pdf",width = 10,height=8,dpi=300)
+  cairo_ps(paste0("inst/manuscript_2022/Figure6_tag.eps"),width = 10)
+  fig6
+  dev.off()
+  
+}
+```
+
+
+
+
+## Table 3 
+
+- Remove acute case
+- Excluded_Metals, All data(Excluded_None?)
+- [] N.measured>10 current use chemicals
+
+```{r}
+N_CAS_Site_tmp <- Res_Mean %>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(N.Site=length(unique(monitoringSiteIdentifier)),N.Sample=length(monitoringSiteIdentifier)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use")))
+table_chronic_mean <- Res_Mean%>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(monitoringSiteIdentifier))%>% ungroup %>% left_join(N_CAS_Site_tmp[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc.Mean=N/N.Sample*100)%>% mutate(N.Site.Mean=N)%>% select(c(LOQ.type,Exclusion.CAS,Group_AF1_Chronic,N.Sample,N.Site.Mean,Perc.Mean))
+table_chronic_max <- Res_Max%>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(monitoringSiteIdentifier))%>% ungroup %>% left_join(N_CAS_Site_tmp[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc.Max=N/N.Sample*100)%>% mutate(N.Site.Max=N)%>% select(c(LOQ.type,Exclusion.CAS,Group_AF1_Chronic,N.Sample,N.Site.Max,Perc.Max))
+
+table_chronic <-left_join(table_chronic_mean,table_chronic_max)
+## attr(table_chronic$Perc.Max, "format") <- "%.2f"
+## fdata(table_chronic)
+table_chronic$Perc.Max <- scales::percent(table_chronic$Perc.Max/100, accuracy = 0.01)
+table_chronic$Perc.Mean <- scales::percent(table_chronic$Perc.Mean/100, accuracy = 0.01)
+
+if(interactive()){
+  write.csv(table_chronic,file="inst/manuscript_2022/table_chronic.csv")
+}
+
+```
+
+
+```{r}
+
+table_chronic%>% knitr::kable(.,format = "html")%>%kableExtra::collapse_rows(.)%>%kableExtra::kable_classic()
+```
+
+
+- [x] N.measured>10 current use chemicals
+
+```{r}
+sts<- Res_Mean%>%filter(Exclusion.CAS=="Current_Use") %>% filter(Nmeasured>10)
+sts <- unique(sts$Site.Year)
+# sts.mean <- sts
+# sts<- Res_Max%>%filter(Exclusion.CAS=="Current_Use") %>% filter(Nmeasured>10)
+# sts.max <- unique(sts$Site.Year)
+
+N_CAS_Site_tmp <- Res_Mean %>% filter(Site.Year %in% sts )%>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(N.Site=length(unique(monitoringSiteIdentifier)),N.Sample=length(monitoringSiteIdentifier)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use")))
+
+table_chronic_mean <- Res_Mean%>% filter(Site.Year %in% sts ) %>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(monitoringSiteIdentifier))%>% ungroup %>% left_join(N_CAS_Site_tmp[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc.Mean=N/N.Sample*100)%>% mutate(N.Site.Mean=N)%>% select(c(LOQ.type,Exclusion.CAS,Group_AF1_Chronic,N.Sample,N.Site.Mean,Perc.Mean))
+
+table_chronic_max <- Res_Max%>% filter(Site.Year %in% sts ) %>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(monitoringSiteIdentifier))%>% ungroup %>% left_join(N_CAS_Site_tmp[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc.Max=N/N.Sample*100)%>% mutate(N.Site.Max=N)%>% select(c(LOQ.type,Exclusion.CAS,Group_AF1_Chronic,N.Sample,N.Site.Max,Perc.Max))
+
+table_chronic <-left_join(table_chronic_mean,table_chronic_max)
+## attr(table_chronic$Perc.Max, "format") <- "%.2f"
+## fdata(table_chronic)
+table_chronic$Perc.Max <- scales::percent(table_chronic$Perc.Max/100, accuracy = 0.01)
+table_chronic$Perc.Mean <- scales::percent(table_chronic$Perc.Mean/100, accuracy = 0.01)
+
+if(interactive()){
+  write.csv(table_chronic,file="inst/manuscript_2022/table_chronic_n10.csv")
+}
+
+```
+
+## Table 4 (Table 13 in Older Version)
+
+### Table 4: Mean Exposure
+
+```{r}
+library(dplyr)
+library(tidyverse)
+driverdata1 <- driverdata %>% group_by(LOQ.type,Exclusion.CAS,test) %>% nest()%>% 
+  mutate(data=purrr::map(data,function(df){
+    df1<- df%>%group_by(Site.Year,monitoringSiteIdentifier,phenomenonTimeReferenceYear,HI) %>% nest()
+    
+    df <- df1[order(df1$HI,decreasing = T),]%>% add_column(x=1:nrow(df1))%>%unnest(cols = c(data))%>% ungroup
+    return(df)}))%>%
+  unnest(cols = c(data))%>%mutate(Component=factor(Component,levels=c("Driver 1","Driver 2","Driver 3","All Other" )))
+
+driverdata1 <- driverdata1 %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Refined_HQ_Metals_PAH","Excluded_Metals")))
+
+nsample <- driverdata %>% group_by(LOQ.type,Exclusion.CAS,test)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Refined_HQ_Metals_PAH","Excluded_Metals")))
+
+
+driverdata1 %>% left_join(Res_Mean%>%filter(LOQ.type=="LOQ.T0" & Exclusion.CAS!="Excluded_None"))%>% group_by(LOQ.type, Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(unique(Site.Year)))
+
+nsample1 <- driverdata1 %>% group_by(LOQ.type,Exclusion.CAS,test)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use")))
+
+chemclass <- chemclass %>% mutate(CAS=as.character(CAS))
+
+table13 <- driverdata1 %>% left_join(Res_Mean%>% dplyr::filter(LOQ.type=="LOQ.T0" & Exclusion.CAS!="Excluded_None"& Exclusion.CAS!="Current_Use"))%>% dplyr::group_by(LOQ.type, Exclusion.CAS,Group_AF1_Chronic) %>% mutate(N=length(unique(Site.Year))) %>% filter(Component!="All Other")%>% ungroup%>% dplyr::group_by(LOQ.type, Exclusion.CAS,Group_AF1_Chronic,N,CAS) %>% dplyr::summarise(HQmax=max(HQ,na.rm=T),N1=sum(HQ>1,na.rm=T),N2=sum(HQ>0.5,na.rm = T),N3=sum(HQ>0.1),freq=length(HQ),freq1=sum(HQ>0))%>%mutate(freq=freq/N) %>% filter((Group_AF1_Chronic=="I" & N1>0) | (Group_AF1_Chronic=="IIIA" & N2>0) | (Group_AF1_Chronic=="IIIB" & N3>0)) %>% left_join(chemclass) %>% dplyr::select(c('LOQ.type', 'Exclusion.CAS', 'Group_AF1_Chronic', 'N',"Substance","HQmax","N1","N2","N3","freq","Chem.Group","class")) %>%filter(freq>0.05)
+```
+
+
+```{r}
+nrow(table13)
+names(table13)[7:9] <- c("N1-#HQ>1","N2-#HQ>0.5","N3-#HQ>0.1")
+if(interactive()) write.csv(table13,file="inst/manuscript_2022/table13_Chronic.csv")
+```
+
+
+```{r}
+table13%>% knitr::kable(.,format = "html")%>%kableExtra::collapse_rows(.,columns = 1:4)%>%kableExtra::kable_classic(.)
+```
+
+
+### Table 4 Maximum Exposure (Table 13)
+- for Maximum exposure. Case: Excluded_Metals. All data
+
+```{r}
+
+driverdata1 <- driverdata_max %>% group_by(LOQ.type,Exclusion.CAS,test) %>% nest()%>% 
+  mutate(data=purrr::map(data,function(df){
+    df1<- df%>%group_by(Site.Year,monitoringSiteIdentifier,phenomenonTimeReferenceYear,HI) %>% nest()
+    df <- df1[order(df1$HI,decreasing = T),]%>% add_column(x=1:nrow(df1))%>%unnest(cols = c(data))%>% ungroup
+    return(df)}))%>%
+  unnest(cols = c(data))%>%mutate(Component=factor(Component,levels=c("Driver 1","Driver 2","Driver 3","All Other" )))
+
+driverdata1 <- driverdata1 %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Refined_HQ_Metals_PAH","Excluded_Metals")))
+
+nsample <- driverdata_max %>% group_by(LOQ.type,Exclusion.CAS,test)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Refined_HQ_Metals_PAH","Excluded_Metals")))
+
+nsample1 <- driverdata1 %>% group_by(LOQ.type,Exclusion.CAS,test)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use")))
+
+chemclass <- chemclass %>% mutate(CAS=as.character(CAS))
+
+table13 <- driverdata1 %>% left_join(Res_Max%>% dplyr::filter(LOQ.type=="LOQ.T0" & Exclusion.CAS!="Excluded_None"& Exclusion.CAS!="Current_Use"))%>% dplyr::group_by(LOQ.type, Exclusion.CAS,Group_AF1_Chronic) %>% mutate(N=length(unique(Site.Year))) %>% filter(Component!="All Other")%>% ungroup%>% dplyr::group_by(LOQ.type, Exclusion.CAS,Group_AF1_Chronic,N,CAS) %>% dplyr::summarise(HQmax=max(HQ,na.rm=T),N1=sum(HQ>1,na.rm=T),N2=sum(HQ>0.5,na.rm = T),N3=sum(HQ>0.1),freq=length(HQ),freq1=sum(HQ>0))%>%mutate(freq=freq/N) %>% filter((Group_AF1_Chronic=="I" & N1>0) | (Group_AF1_Chronic=="IIIA" & N2>0) | (Group_AF1_Chronic=="IIIB" & N3>0)) %>% left_join(chemclass) %>% dplyr::select(c('LOQ.type', 'Exclusion.CAS', 'Group_AF1_Chronic', 'N',"Substance","HQmax","N1","N2","N3","freq","Chem.Group","class")) %>%filter(freq>0.05)
+```
+
+
+```{r}
+nrow(table13)
+names(table13)[7:9] <- c("N1-#HQ>1","N2-#HQ>0.5","N3-#HQ>0.1")
+if(interactive()) write.csv(table13,file="inst/manuscript_2022/table13_Chronic_max.csv")
+```
+
+
+```{r}
+table13%>% knitr::kable(.,format = "html")%>%kableExtra::collapse_rows(.,columns = 1:4)%>%kableExtra::kable_classic(.)
+```
+
+## Zero Inflation
+
+
+```{r}
+Res_LOQ <- getResData_LOQ(Data.AggBySiteID.2,chemclass,
+                         Exclusion.CAS = c("Excluded_Metals"),
+                         exclude.substances=NULL,
+                         Data.SSD.1=Data.SSD.1)
+
+```
+
+
+
+```{r}
+f1 <- generate_fig1_LOQ(Res_LOQ,Exclusion.CAS = c("Excluded_Metals"), cutoff=0,df = data.frame(x=1e-6,y=9),   test="Chronic", chemclass=chemclass,used=c("Mean"))
+
+f1$p1+facet_grid(.~Exclusion.CAS,scale="free")
+if(interactive()){
+  ggsave("inst/manuscript_2022/zero_inflation.png",width = 5,height=5,dpi=300)
+  ggsave("inst/manuscript_2022/zero_inflation.pdf",width = 5,height=5)
+  cairo_ps(paste0("inst/manuscript_2022/zero_inflation.eps"),width = 5,height=5)
+  f1$p1+facet_grid(.~Exclusion.CAS,scale="free")
+  dev.off()
+}
+# f1$Res_1$used
+```
+
+

@@ -1,0 +1,439 @@
+---
+title: "msPAF"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{msPAF}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval=T,
+  fig.width = 12,
+  fig.height = 10
+)
+```
+
+
+- Spatial bias and substance selection bias?
+
+
+## Heatmap on the map
+
+- [ ] add MCR based classification
+- [x] Do we need N measured?
+- [ ] add missing countries
+
+```{r}
+library(ggplot2)
+library(dplyr)
+require(maps)
+require(viridis)
+theme_set(
+  theme_void()
+  )
+library(RColorBrewer)
+```
+
+"BA" "BE" "CH" "CY" "CZ" "DE" "ES" "FI" "FR" "HR" "IE" "IT" NA   "LT" "LU" "LV" "NL" "PL" "RO" "RS" "SE"
+"SK" "UK"
+
+```{r}
+# Some EU Contries
+some.eu.countries <- c(
+  "Portugal", "Spain", "France", "Switzerland", "Germany",
+  "Austria", "Belgium", "UK", "Netherlands",
+  "Denmark", "Poland", "Italy", "Cyprus",
+  "Croatia", "Slovenia", "Hungary", "Slovakia",
+  "Czech republic","Denmark","Finland","Sweden","Bosnia and Herzegovina","Ireland","Lithuania","Luxembourg","Latvia","Poland","Romania","Serbia","Slovakia","Czechia"
+)
+# Retrievethe map data
+some.eu.maps <- map_data("world", region = some.eu.countries)
+
+# Compute the centroid as the mean longitude and lattitude
+# Used as label coordinate for country's names
+region.lab.data <- some.eu.maps %>%
+  group_by(region) %>%
+  summarise(long = mean(long), lat = mean(lat))
+
+
+
+cols <- brewer.pal(n = 9, name = 'Paired')
+stations1$popup <- with(stations1, paste("<b>", monitoringSiteIdentifier, "</b>"))
+#stations1$col <- plyr::mapvalues(stations1$countryCode,from=unique(stations1$countryCode),to=cols)
+stations1$lon <- as.numeric(stations1$lon)
+stations1$lat <- as.numeric(stations1$lat)
+```
+
+
+```{r}
+ggplot(some.eu.maps, aes(x = long, y = lat)) +
+  geom_polygon(aes( group = group),fill=NA,col="black",guide=F)+
+  scale_fill_viridis_d(option="plasma")+
+  theme_void()+
+  geom_point(data=stations1%>%filter(LOQ.type=="LOQ.T0" & Exclusion.CAS=="Excluded_None"),aes(x = lon, y = lat,col=log(mean_HI_Acute)),size=0.1)+geom_text(aes(label = region), data = region.lab.data,  size = 3, hjust = 0.5)+scale_color_viridis_c(direction=-1,option = "inferno")+guides(fill=FALSE,alpha=FALSE)
+```
+
+
+```{r}
+if(interactive()){
+  ggsave("inst/manuscript/map_T0_None.png",width = 8,height=8,dpi=300)
+}
+```
+
+
+```{r}
+ggplot(data=stations1%>%filter(Exclusion.CAS != "Excluded_None"& Exclusion.CAS != "Refined_Metals_PAH"),aes(x = lon, y = lat))+geom_point(aes(col=(mean_HI_Chronic)),size=0.1)+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_b(trans="log10",direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v3/map_mean_HI_Chronic.png",width = 10,height=8,dpi=300)
+}
+
+
+ggplot(data=stations1%>%filter(Exclusion.CAS != "Excluded_None"& Exclusion.CAS != "Refined_Metals_PAH"),aes(x = lon, y = lat))+geom_point(aes(col=(mean_HI_Acute)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_c(trans="log10",direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+#  +
+#   theme(  legend.title.align = 0.5,
+#           legend.text.align = 0.5,
+#           legend.text = element_text(angle=45),
+#           legend.justification = c(0.5, 0.5),
+#           legend.position = "bottom"
+#           )
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v3/map_mean_HI_Acute.png",width = 10,height=8,dpi=300)
+}
+
+
+stdata <- stations1%>%filter(Exclusion.CAS != "Excluded_None" & Exclusion.CAS != "Refined_Metals_PAH" & LOQ.type=="LOQ.T0") %>% pivot_longer(cols=c(mean_N_measured,mean_N_detected),names_to="Ntype",values_to="N")
+stdata$Ntype <- factor(stdata$Ntype,levels=c("mean_N_measured","mean_N_detected"))
+stdata$Exclusion.CAS <- factor(stdata$Exclusion.CAS,levels=c("Excluded_Metals","Banned_Listed","Current_Use"))
+ggplot(stdata,aes(x = lon, y = lat))+geom_point(aes(col=N))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_c(trans="log10",direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(Ntype~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v3/map_mean_N_measure.png",width=10,height=8,dpi=300)
+}
+
+
+ggplot(data=stations1%>%filter(Exclusion.CAS != "Excluded_None"& Exclusion.CAS != "Refined_Metals_PAH"),aes(x = lon, y = lat))+geom_point(aes(col=(mean_MCR_Acute)))+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+scale_color_viridis_c(direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v3/map_mean_MCR_Acute.png",width=10,height=8,dpi=300)
+}
+
+
+ggplot(data=stations1%>%filter(Exclusion.CAS != "Excluded_None"& Exclusion.CAS != "Refined_Metals_PAH"),aes(x = lon, y = lat))+geom_point(aes(col=(mean_MCR_Chronic)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_c(direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v3/map_mean_MCR_Chronic.png",width=10,height=8,dpi=300)
+}
+
+
+
+
+ggplot(data=stations1%>%filter(Exclusion.CAS != "Excluded_None"& Exclusion.CAS != "Banned_Listed"),aes(x = lon, y = lat))+geom_point(aes(col=(Group_AF1_Acute)))+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+scale_color_viridis_d(direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v3/map_Group_AF1__Acute.png",width=10,height=8,dpi=300)
+}
+
+
+ggplot(data=stations1%>%filter(Exclusion.CAS != "Excluded_None"),aes(x = lon, y = lat))+geom_point(aes(col=(Group_AF1_Chronic)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_d(direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v3/map_Group_AF1_Chronic.png",width=10,height=8,dpi=300)
+}
+```
+
+
+
+
+- use excluded_metals & PAH 
+
+```{r}
+cols <- brewer.pal(n = 9, name = 'Paired')
+stations2$popup <- with(stations2, paste("<b>", monitoringSiteIdentifier, "</b>"))
+#stations2$col <- plyr::mapvalues(stations2$countryCode,from=unique(stations2$countryCode),to=cols)
+stations2$lon <- as.numeric(stations2$lon)
+stations2$lat <- as.numeric(stations2$lat)
+```
+
+
+```{r}
+ggplot(data=stations2,aes(x = lon, y = lat))+geom_point(aes(col=(mean_HI_Chronic)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_c(trans="log10",direction=-1,option = "B")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v2/map_mean_HI_Chronic.png",width=10,height=8,dpi=300)
+}
+
+
+ggplot(data=stations2,aes(x = lon, y = lat))+geom_point(aes(col=(mean_HI_Acute)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_c(trans="log10",direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v2/map_mean_HI_Acute.png",width=10,height=8,dpi=300)
+}
+
+
+ggplot(data=stations2,aes(x = lon, y = lat))+geom_point(aes(col=(mean_N_measured)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_c(trans="log10",direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v2/map_mean_N_measure.png",width=10,height=8,dpi=300)
+}
+
+ggplot(data=stations2,aes(x = lon, y = lat))+geom_point(aes(col=(mean_MCR_Acute)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_c(direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v2/map_mean_MCR_Acute.png",width=10,height=8,dpi=300)
+}
+
+
+ggplot(data=stations2,aes(x = lon, y = lat))+geom_point(aes(col=(mean_MCR_Chronic)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_c(trans="log10",direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v2/map_mean_MCR_Chronic.png",width=10,height=8,dpi=300)
+}
+
+
+
+
+ggplot(data=stations2,aes(x = lon, y = lat))+geom_point(aes(col=(Group_AF1_Acute)))+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+scale_color_viridis_d(direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v2/map_Group_AF1_Acute.png",width=10,height=8,dpi=300)
+}
+
+
+ggplot(data=stations2,aes(x = lon, y = lat))+geom_point(aes(col=(Group_AF1_Chronic)))+
+  geom_polygon(data=some.eu.maps, aes(x = long, y = lat,group=group),fill=NA,color="black",guide=F) +  theme_bw()+geom_text(aes(x=long,y=lat,label = region), data = region.lab.data,  size = 3, hjust = 0.5)+
+scale_color_viridis_d(direction=-1,option = "D")+guides(fill=FALSE,alpha=FALSE)+facet_grid(LOQ.type~Exclusion.CAS)+labs(x="",y="")+xlim(c(-11,40))+ylim(c(30,70))
+
+
+if(interactive()){
+  ggsave("inst/manuscript_v2/map_Group_AF1_Chronic.png",width=10,height=8,dpi=300)
+}
+```
+
+
+
+
+```{r}
+library(rworldmap)
+newmap <- getMap(resolution = "low")
+library(ggmap)
+# europe.limits <- geocode(c("CapeFligely,RudolfIsland,Franz Josef Land,Russia",
+#    "Gavdos,Greece",
+#    "Faja Grande,Azores","SevernyIsland,Novaya Zemlya,Russia"))
+
+plot(newmap,
+   xlim = c(-20, 59),
+   ylim = c(35, 71),
+   asp = 1
+ )
+ 
+ 
+```
+
+
+
+```{r eval=F,include=F}
+library(leaflet)
+library(dplyr)
+
+cols <- c("darkred", "orange", "darkblue", "lightgreen", "blue","pink","green","darkgreen","purple")
+stations$popup <- with(stations, paste("<b>", monitoringSiteIdentifier, "</b>"))
+stations$col <- plyr::mapvalues(stations$countryCode,from=unique(stations$countryCode),to=cols)
+colors()[match(rgb(t(col2rgb(brewer.pal(n = 9, name = 'Paired'))), 
+    maxColorValue = 255), c(rgb(t(col2rgb(colors())), maxColorValue = 255)))]
+
+stations$lon <- as.numeric(stations$lon)
+stations$lat <- as.numeric(stations$lat)
+markers <- awesomeIcons(
+    icon='map-marker',
+    iconColor = 'black',
+    markerColor = stations$col,
+    library='fa')
+
+m <- leaflet(data = stations, width = "100%" ) %>%
+    addTiles() %>%  # Add default OpenStreetMap map tiles
+    addAwesomeMarkers(
+        lng = ~lon, 
+        lat = ~lat, 
+        popup = ~popup,
+        icon = markers
+    ) %>%
+    addLegend(
+        position='topright',
+        colors= cols,
+        labels= unique(stations$countryCode),
+        opacity = 0.75,
+        title="Legend"
+        )
+
+m  # Show map
+```
+
+
+## Sunburst Chart
+
+- Chemical space: class and regulatory status
+
+
+```{r}
+chemclass$class1 <- chemclass$class
+chemclass$class1[chemclass$Chem.Group=="PAH"] <- "PAH"
+tmp <- chemclass %>% group_by(class1,Chem.Group) %>% summarise(num=length(CAS))
+parent <- tmp$class1
+labels <- paste0(tmp$Chem.Group," (",tmp$num,")")
+values <- tmp$num
+ids <- paste0(parent,"-",labels)
+tmp <- chemclass %>% group_by(class1) %>% summarise(num=length(CAS))
+parent <- c("",rep("All",nrow(tmp)),parent)
+labels <- c("All (334)",paste0(tmp$class1," (",tmp$num,")"),labels)
+values <- c(334,tmp$num,values)
+ids <- c("All",tmp$class1,ids)
+
+d <- data.frame(parent,labels,values,ids)
+library(plotly)
+
+
+write.csv(d,file="./inst/manuscript_v3/chemclass_nsub.csv")
+
+
+fig <- plot_ly(d,
+    ids=~ids, 
+  labels = ~labels,
+  parents = ~parent,
+  values =~values,
+  type = 'sunburst',
+  branchvalues = 'total',
+  marker = list(colors = list("#FFFFFF","#FF8000","#009900","#800080"))
+)
+fig
+```
+
+
+- Chemical space: class and N measured, N detected! as labels
+- downloaded to the folder inst/manuscript/chemclass_detected_measured.png
+
+```{r}
+ cheminfo <- Data.AggBySiteID.2 %>%left_join(chemclass)%>%
+    dplyr::group_by(class,Site.Year,Chem.Group) %>% dplyr::summarise(Detected=any(AboveLOQ),Measured=length(Chem.Group)>0) %>%
+    ungroup %>% group_by(class,Chem.Group) %>% dplyr::summarise(Ndetected=sum(Detected),Nmeasured=sum(Measured))##%>%
+##    ungroup %>% group_by(class) %>% ## mutate(Ndetected.class=sum(Ndetected),Nmeasured.class=sum(Nmeasured))
+tmp <- Data.AggBySiteID.2 %>%left_join(chemclass)%>%
+    dplyr::group_by(class,Site.Year) %>% dplyr::summarise(Detected=any(AboveLOQ),Measured=length(Chem.Group)>0) %>%
+    ungroup %>% group_by(class) %>% dplyr::summarise(Ndetected=sum(Detected),Nmeasured=sum(Measured))
+
+parent <- cheminfo$class
+labels <- paste0(cheminfo$Chem.Group,"\n",cheminfo$Ndetected,"\n",cheminfo$Nmeasured)
+values <- cheminfo$Nmeasured
+ids <- paste0(parent,"-",labels)
+
+parent <- c("",rep("All",nrow(tmp)),parent)
+labels <- c("All (12356)",paste0(tmp$class,"\n",tmp$Ndetected,"\n",tmp$Nmeasured),labels)
+values <- c(12356,tmp$Nmeasured,values)
+ids <- c("All",tmp$class,ids)
+
+d <- data.frame(parent,labels,values,ids)
+library(plotly)
+
+
+
+
+
+fig <- plot_ly(d,
+    ids=~ids, 
+  labels = ~labels,
+  parents = ~parent,
+  values =~values,
+  type = 'sunburst'
+)
+fig
+```
+
+
+
+
+- https://plotly.com/r/sunburst-charts/
+- https://stackoverflow.com/questions/12926779/how-to-make-a-sunburst-plot-in-r-or-python
+- https://medium.com/optima-blog/create-basic-sunburst-graphs-with-ggplot2-7d7484d92c61
+
+
+## Driver Plots with LOQ.T1 option
+
+```{r}
+driverdata <- getDriverData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T1"), Exclusion.CAS = c("Refined_Metals_PAH", "Excluded_Metals_PAH","Current_Use"), Data.SSD.1,threshold = 1)
+```
+
+```{r}
+site.year <- driverdata%>%filter(Exclusion.CAS=="Excluded_Metals_PAH",test=="Chronic") %>% group_by(LOQ.type)%>% nest()%>%mutate(sy=map(data,function(df)unique(df$Site.Year)))
+## extract driver data with the same site.year.
+
+currentdat <- getDriverData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T1"),
+Exclusion.CAS = c("Current_Use"),Data.SSD.1, threshold=0.1)
+currentdat <- currentdat %>% filter(test=="Chronic")
+# tmp1 <- currentdat %>% filter(LOQ.type=="LOQ.T0") %>% filter(Site.Year %in% site.year$sy[[1]])
+tmp2 <- currentdat %>% filter(LOQ.type=="LOQ.T1") %>% filter(Site.Year %in% site.year$sy[[2]])
+# currentdat1 <- rbind(tmp1,tmp2)%>%group_by(LOQ.type) %>% nest()%>% mutate(data=purrr::map(data,function(df){
+#   df1<- df%>%group_by(Site.Year,monitoringSiteIdentifier,phenomenonTimeReferenceYear,HI) %>% nest()
+#   df <- df1[order(df1$HI,decreasing = T),]%>% add_column(x=1:nrow(df1))%>%unnest(cols = c(data))%>% ungroup
+#   return(df)}))%>%unnest(cols = c(data))%>%mutate(Component=factor(Component,levels=c("Driver 1","Driver 2","Driver 3","All Other" )))
+
+currentdat1 <- tmp2 %>%group_by(LOQ.type) %>% nest()%>% mutate(data=purrr::map(data,function(df){
+  df1<- df%>%group_by(Site.Year,monitoringSiteIdentifier,phenomenonTimeReferenceYear,HI) %>% nest()
+  df <- df1[order(df1$HI,decreasing = T),]%>% add_column(x=1:nrow(df1))%>%unnest(cols = c(data))%>% ungroup
+  return(df)}))%>%unnest(cols = c(data))%>%mutate(Component=factor(Component,levels=c("Driver 1","Driver 2","Driver 3","All Other" )))
+```
+
+
+
+```{r}
+
+nsample1 <- driverdata1 %>% group_by(LOQ.type,Exclusion.CAS,test)%>% nest()%>%mutate(sy=map(data,function(df) length(unique(df$Site.Year))),hmax=map(data,function(df) max(df$HI)))%>% select(-data) %>% unnest(cols=c(sy,hmax)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Refined_Metals_PAH","Excluded_Metals_PAH","Current_Use")))
+```
+
+
+```{r}
+chemclass <- chemclass %>% mutate(CAS=as.character(CAS))
+table13 <- driverdata1 %>% left_join(Res%>%filter(LOQ.type=="LOQ.T1" & Exclusion.CAS!="Excluded_None"))%>% group_by(LOQ.type, Exclusion.CAS,Group_AF1_Chronic) %>% mutate(N=length(unique(Site.Year))) %>% filter(Component!="All Other")%>% group_by(LOQ.type, Exclusion.CAS,Group_AF1_Chronic,N,CAS) %>% summarise(HQmax=max(HQ,na.rm=T),N1=sum(HQ>1,na.rm=T),N2=sum(HQ>0.5,na.rm = T),N3=sum(HQ>0.1)) %>% filter((Group_AF1_Chronic=="I" & N1>0) | (Group_AF1_Chronic=="IIIA" & N2>0) | (Group_AF1_Chronic=="IIIB" & N3>0)) %>% left_join(chemclass) %>% dplyr::select(c('LOQ.type', 'Exclusion.CAS', 'Group_AF1_Chronic', 'N',"Substance","HQmax","N1","N2","N3"))
+```
+
+
+```{r}
+write.csv(table13,file="inst/manuscript_v3/table13_LOQ.T1.csv")
+```

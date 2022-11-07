@@ -1,0 +1,407 @@
+---
+title: "DropAcute"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(beemixtox)
+```
+
+
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval=T,
+  fig.width = 12,
+  fig.height = 10
+)
+library(pander)
+panderOptions("table.split.table",Inf)
+```
+
+
+
+
+## Figures for the Manuscript
+
+
+```{r}
+library(beemixtox)
+library(quantreg)
+library(tidyverse)
+data("Data.AggBySiteID.2")
+tmp1 <- Data.AggBySiteID.2 %>% group_by(Site.Year) %>% summarise(N=length(Site.Year)) %>% mutate(n1=mean(N))
+data("Data.SSD")
+data("chemclass")
+CAS.SSD = unique(Data.AggBySiteID.2$CAS)[unique(Data.AggBySiteID.2$CAS)%in%as.character(unique(Data.SSD$CAS.))]
+Data.SSD.1 = Data.SSD[Data.SSD$CAS.%in%CAS.SSD,]; Data.SSD.1 = droplevels(Data.SSD.1)
+
+```
+
+### Figure 1
+
+Figure 1. log10(HI)-MCR Plots. Faceted plot (2x3). 
+
+Chronic, same for Acute (for SM Materials) 
+
+LOQ.type = c("LOQ.T0", "LOQ.T1") 
+
+Exclusion.CAS = c("Excluded_None", "Excluded_Metals", "Current_Use") 
+
+**Note that 1808 site.year has HI of 0, around 15.5 %**
+
+
+
+
+```{r}
+Res <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+            Exclusion.CAS = c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use"),Data.SSD.1)
+
+```
+
+```{r}
+cutoff <- 5
+Res <- Res%>%filter(Nmeasured>cutoff)
+```
+
+
+- save the table first before the plot
+
+Table 1. CEFIC-MIAT Table 
+
+- Include only AF 1 (Do we want to include other Afs?) 
+- Chronic, same for Acute (for SM Materials) 
+- LOQ.type = c("LOQ.T0", "LOQ.T1") 
+- Exclusion.CAS = c("Excluded_None", "Excluded_Metals", "Current_Use") 
+- Generate identical Table for Acute for SM. 
+
+```{r}
+N_CAS_Site_tmp <- Res %>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(N.Site=length(unique(monitoringSiteIdentifier)),N.Sample=length(monitoringSiteIdentifier)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use")))
+table_chronic <- Res%>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(monitoringSiteIdentifier))%>% ungroup %>% left_join(N_CAS_Site_tmp[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc=N/N.Sample*100)
+```
+
+
+```{r}
+if(interactive()){
+  write.csv(table_chronic,file="inst/manuscript_cutoff_5measured/table_chronic_5measured.csv")
+}
+
+```
+
+
+```{r}
+table_chronic%>% knitr::kable(.,format = "html")%>%kableExtra::collapse_rows(.)
+```
+
+
+```{r}
+table_acute <- Res%>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Acute) %>% summarise(N=length(monitoringSiteIdentifier))%>% ungroup %>% left_join(N_CAS_Site_tmp[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc=N/N.Sample*100)
+if(interactive()){
+  write.csv(table_acute,file="inst/manuscript_cutoff_5measured/table_acute_5measured.csv")
+}
+```
+
+```{r}
+table_acute%>% knitr::kable(.,format = "html")%>%kableExtra::collapse_rows(.)
+```
+
+
+## Figure 1
+
+```{r}
+recting <- rbind(data.frame(xmin=-Inf,xmax=1,ymin=-Inf,ymax=Inf,col="green"),
+                 data.frame(xmin=1,xmax=Inf,ymin=0,ymax=2,col="red"),
+                  data.frame(xmin=1,xmax=Inf,ymin=2,ymax=Inf,col="yellow"))
+```
+
+
+
+```{r}
+sum(Res$HI_Acute==0 & Res$Exclusion.CAS=="Excluded_None" & Res$LOQ.type=="LOQ.T0")
+sum(Res$HI_Acute==0 & Res$Exclusion.CAS=="Excluded_None" & Res$LOQ.type=="LOQ.T1")
+
+df <- data.frame(x=1e-6,y=9)
+
+N_CAS_Site <- Res %>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(N.Site=length(unique(monitoringSiteIdentifier)),N.Sample=length(monitoringSiteIdentifier)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use")))
+N.CAS <- sapply(c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use"),function(x)getNcas(x,chemclass))
+N_CAS_Site$N.CAS <- rep(N.CAS[unique(N_CAS_Site$Exclusion.CAS)],2)
+N_CAS_Site <- data.frame(df,N_CAS_Site)
+
+Nclass <- Res %>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Acute) %>% summarise(N=length(monitoringSiteIdentifier))%>% left_join(N_CAS_Site[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc=N/N.Sample*100)
+
+Nclass1 <- Nclass %>% filter(Group_AF1_Acute=="IIIA" | Group_AF1_Acute =="IIIB")%>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(Perc=sum(Perc)) %>% mutate(Group="III")
+
+Nclass <- rbind(Nclass1,Nclass[,c("LOQ.type","Exclusion.CAS","Perc","Group_AF1_Acute")]%>%rename(Group=Group_AF1_Acute)%>%filter(Group=="I"|Group=="II"))
+
+df1 <- data.frame(x=1e-6,y=7,Label="No concern",Group="II")
+df1 <- rbind(df1,data.frame(x=20,y=5,Label="Single Substance Risk",Group="I"))
+df1 <- rbind(df1,data.frame(x=5,y=10,Label="Multiple Chemicals Risk",Group="III"))
+Nclass <- Nclass %>% left_join(df1)
+```
+
+
+
+```{r}
+#ggplot(Res,aes(x=log10(HI_Acute),y=MCR.HC50.Acute.EC50))+geom_point()+geom_text(data=df,aes(x=x,y=y),label=paste0("N.Site = ",10,"\nN.CAS = ",5))+facet_grid(LOQ.type~Exclusion.CAS)
+Res_1 <- Res %>% filter(LOQ.type=="LOQ.T0" & Exclusion.CAS != "Excluded_None") %>% droplevels(.)
+N_CAS_Site_1 <- N_CAS_Site%>% filter(LOQ.type=="LOQ.T0" & Exclusion.CAS != "Excluded_None")%>% droplevels(.)
+Nclass_1 <- Nclass%>% filter(LOQ.type=="LOQ.T0" & Exclusion.CAS != "Excluded_None")%>% droplevels(.)
+
+ggplot(Res_1,aes(x=HI_Acute,y=MCR.HC50.Acute.EC50))+geom_point(aes(col=Group_AF1_Acute))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust="inward") +scale_x_log10()+geom_vline(xintercept = 1,col="blue")+geom_hline(yintercept = 2,col="blue")+facet_grid(LOQ.type~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y),col="blue")+theme(legend.position = "bottom")
+# geom_rect(data=recting,aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,fill=col))
+# ggplot(data.frame(x=1:10,y=1:10),aes(x=x,y=y))+geom_point()+scale_x_log10()+ geom_line() 
+if(interactive()){
+  ggsave("inst/manuscript_cutoff_5measured/Figure1-Acute.png",width = 15,height=8,dpi=300)
+}
+```
+
+
+- here we want to combine the acute and chronic results
+
+```{r}
+N_CAS_Site_Acute <- N_CAS_Site_1 %>% mutate(test="Acute")
+Nclass_Acute <- Nclass_1 %>% mutate(test="Acute")
+Res_Acute <- Res_1 %>% mutate(MCR=MCR.HC50.Acute.EC50,HI=HI_Acute,Group_AF1=Group_AF1_Acute)%>% mutate(test="Acute")
+
+```
+
+
+```{r}
+N_CAS_Site$y <- 8
+
+
+Nclass <- Res %>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(monitoringSiteIdentifier))%>% left_join(N_CAS_Site[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc=N/N.Sample*100)
+Nclass1 <- Nclass %>% filter(Group_AF1_Chronic=="IIIA" | Group_AF1_Chronic =="IIIB")%>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(Perc=sum(Perc)) %>% mutate(Group="III")
+
+Nclass <- rbind(Nclass1,Nclass[,c("LOQ.type","Exclusion.CAS","Perc","Group_AF1_Chronic")]%>%rename(Group=Group_AF1_Chronic)%>%filter(Group=="I"|Group=="II"))
+
+df1 <- data.frame(x=1e-6,y=4,Label="No concern",Group="II")
+df1 <- rbind(df1,data.frame(x=50,y=5,Label="Single Substance Risk",Group="I"))
+df1 <- rbind(df1,data.frame(x=5,y=9,Label="Multiple Chemicals Risk",Group="III"))
+Nclass <- Nclass %>% left_join(df1)
+Nclass_1 <- Nclass%>% filter(LOQ.type=="LOQ.T0" & Exclusion.CAS != "Excluded_None")%>% droplevels(.)
+
+p1_ave <- ggplot(Res_1,aes(x=HI_Chronic,y=MCR.HC05.Chronic.NOEC))+geom_point(aes(col=Group_AF1_Chronic))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust="inward")  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(LOQ.type~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom")
+p1_ave
+
+Res_1_ave <- Res_1
+Res_1_ave$used <- "mean"
+Res_1_max$used <- "max"
+N_CAS_Site_1_ave <- N_CAS_Site_1
+N_CAS_Site_1_ave$used <- "mean"
+N_CAS_Site_1_max$used <- "max"
+N_CAS_Site_1_2 <- rbind(N_CAS_Site_1_ave,N_CAS_Site_1_max)
+Nclass_1_ave <- Nclass_1
+Nclass_1_ave$used <- "mean"
+Nclass_1_max$used <- "max"
+Nclass_1_2 <- rbind(Nclass_1_ave,Nclass_1_max)
+
+Res_1_2 <- rbind(Res_1_ave,Res_1_max)
+Res_1_2$
+p1_2 <- ggplot(Res_1_2,aes(x=HI_Chronic,y=MCR.HC05.Chronic.NOEC))+geom_point(aes(col=Group_AF1_Chronic))+geom_text(data=N_CAS_Site_1_2,aes(x=x,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1_2,aes(x=x,y=y,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust="inward")  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(used~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom")
+p1_2
+ggsave("inst/manuscript_dropacute/Figure1-Chronic-2.png",width = 9,height=7,dpi=300)
+
+# ggplot(Res_1,aes(x=HI_Chronic,y=MCR.HC05.Chronic.NOEC))+geom_point(aes(col=Group_AF1_Chronic))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust="inward")  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(Exclusion.CAS~LOQ.type,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom")
+
+if(interactive()){
+  ggsave("inst/manuscript_dropacute/Figure1-Chronic.png",width = 9,height=6,dpi=300)
+}
+```
+
+
+```{r}
+N_CAS_Site_Chronic <- N_CAS_Site_1 %>% mutate(test="Chronic")
+Nclass_Chronic <- Nclass_1 %>% mutate(test="Chronic")
+Res_Chronic <- Res_1 %>% mutate(MCR=MCR.HC05.Chronic.NOEC,HI=HI_Chronic,Group_AF1=Group_AF1_Chronic)%>% mutate(test="Chronic")
+
+```
+
+
+```{r}
+N_CAS_Site_1 <- rbind(N_CAS_Site_Acute,N_CAS_Site_Chronic)
+ Nclass_1 <- rbind(Nclass_Acute,Nclass_Chronic)
+ Res_1 <- rbind(Res_Acute,Res_Chronic)
+ # Res_1$Group_AF1 <- NA
+ # Res_1$Group_AF1[Res_1$test=="Acute"] <- Res_1$Group_AF1_Acute[Res_1$test=="Acute"]
+ # Res_1$Group_AF1[Res_1$test=="Chronic"] <- Res_1$Group_AF1_Chronic[Res_1$test=="Chronic"]
+ Res_1 <- Res_1 %>% rename(Group=Group_AF1)
+ ggplot(Res_1,aes(x=HI,y=MCR))+geom_point(aes(col=Group))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(test~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))
+ggsave("inst/manuscript_cutoff_5measured/Figure1-final.png",width = 9,height=6,dpi=300)
+if(interactive()){
+  ggsave("inst/manuscript_cutoff_5measured/Figure1.png",width = 15,height=8,dpi=300)
+}
+```
+
+
+
+## N measured > 10
+
+
+```{r}
+cutoff <- 10
+Res <- Res%>%filter(Nmeasured>cutoff)
+samples <- (Res%>%filter(Exclusion.CAS=="Current_Use"))
+samples <- samples$monitoringSiteIdentifier
+Res <- Res%>%filter(monitoringSiteIdentifier %in% samples)
+dim(Res)
+```
+
+
+- save the table first before the plot
+
+Table 1. CEFIC-MIAT Table 
+
+- Include only AF 1 (Do we want to include other Afs?) 
+- Chronic, same for Acute (for SM Materials) 
+- LOQ.type = c("LOQ.T0", "LOQ.T1") 
+- Exclusion.CAS = c("Excluded_None", "Excluded_Metals", "Current_Use") 
+- Generate identical Table for Acute for SM. 
+
+```{r}
+N_CAS_Site_tmp <- Res %>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(N.Site=length(unique(monitoringSiteIdentifier)),N.Sample=length(monitoringSiteIdentifier)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use")))
+table_chronic <- Res%>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(monitoringSiteIdentifier))%>% ungroup %>% left_join(N_CAS_Site_tmp[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc=N/N.Sample*100)
+```
+
+
+```{r}
+if(interactive()){
+  write.csv(table_chronic,file="inst/manuscript_cutoff_10measured/table_chronic_5measured.csv")
+}
+
+```
+
+
+```{r}
+table_chronic%>% knitr::kable(.,format = "html")%>%kableExtra::collapse_rows(.)
+```
+
+
+```{r}
+table_acute <- Res%>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Acute) %>% summarise(N=length(monitoringSiteIdentifier))%>% ungroup %>% left_join(N_CAS_Site_tmp[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc=N/N.Sample*100)
+if(interactive()){
+  write.csv(table_acute,file="inst/manuscript_cutoff_10measured/table_acute_5measured.csv")
+}
+```
+
+```{r}
+table_acute%>% knitr::kable(.,format = "html")%>%kableExtra::collapse_rows(.)
+```
+
+
+## Figure 1
+
+```{r}
+recting <- rbind(data.frame(xmin=-Inf,xmax=1,ymin=-Inf,ymax=Inf,col="green"),
+                 data.frame(xmin=1,xmax=Inf,ymin=0,ymax=2,col="red"),
+                  data.frame(xmin=1,xmax=Inf,ymin=2,ymax=Inf,col="yellow"))
+```
+
+
+
+```{r}
+sum(Res$HI_Acute==0 & Res$Exclusion.CAS=="Excluded_None" & Res$LOQ.type=="LOQ.T0")
+sum(Res$HI_Acute==0 & Res$Exclusion.CAS=="Excluded_None" & Res$LOQ.type=="LOQ.T1")
+
+df <- data.frame(x=1e-6,y=9)
+
+N_CAS_Site <- Res %>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(N.Site=length(unique(monitoringSiteIdentifier)),N.Sample=length(monitoringSiteIdentifier)) %>% mutate(Exclusion.CAS=factor(Exclusion.CAS,levels=c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use")))
+N.CAS <- sapply(c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use"),function(x)getNcas(x,chemclass))
+N_CAS_Site$N.CAS <- rep(N.CAS[unique(N_CAS_Site$Exclusion.CAS)],2)
+N_CAS_Site <- data.frame(df,N_CAS_Site)
+
+Nclass <- Res %>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Acute) %>% summarise(N=length(monitoringSiteIdentifier))%>% left_join(N_CAS_Site[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc=N/N.Sample*100)
+
+Nclass1 <- Nclass %>% filter(Group_AF1_Acute=="IIIA" | Group_AF1_Acute =="IIIB")%>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(Perc=sum(Perc)) %>% mutate(Group="III")
+
+Nclass <- rbind(Nclass1,Nclass[,c("LOQ.type","Exclusion.CAS","Perc","Group_AF1_Acute")]%>%rename(Group=Group_AF1_Acute)%>%filter(Group=="I"|Group=="II"))
+
+df1 <- data.frame(x=1e-6,y=7,Label="No concern",Group="II")
+df1 <- rbind(df1,data.frame(x=20,y=5,Label="Single Substance Risk",Group="I"))
+df1 <- rbind(df1,data.frame(x=5,y=10,Label="Multiple Chemicals Risk",Group="III"))
+Nclass <- Nclass %>% left_join(df1)
+```
+
+
+
+```{r}
+#ggplot(Res,aes(x=log10(HI_Acute),y=MCR.HC50.Acute.EC50))+geom_point()+geom_text(data=df,aes(x=x,y=y),label=paste0("N.Site = ",10,"\nN.CAS = ",5))+facet_grid(LOQ.type~Exclusion.CAS)
+Res_1 <- Res %>% filter(LOQ.type=="LOQ.T0" & Exclusion.CAS != "Excluded_None") %>% droplevels(.)
+N_CAS_Site_1 <- N_CAS_Site%>% filter(LOQ.type=="LOQ.T0" & Exclusion.CAS != "Excluded_None")%>% droplevels(.)
+Nclass_1 <- Nclass%>% filter(LOQ.type=="LOQ.T0" & Exclusion.CAS != "Excluded_None")%>% droplevels(.)
+
+ggplot(Res_1,aes(x=HI_Acute,y=MCR.HC50.Acute.EC50))+geom_point(aes(col=Group_AF1_Acute))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust="inward") +scale_x_log10()+geom_vline(xintercept = 1,col="blue")+geom_hline(yintercept = 2,col="blue")+facet_grid(LOQ.type~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y),col="blue")+theme(legend.position = "bottom")
+# geom_rect(data=recting,aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,fill=col))
+# ggplot(data.frame(x=1:10,y=1:10),aes(x=x,y=y))+geom_point()+scale_x_log10()+ geom_line() 
+if(interactive()){
+  ggsave("inst/manuscript_cutoff_10measured/Figure1-Acute.png",width = 15,height=8,dpi=300)
+}
+```
+
+
+- here we want to combine the acute and chronic results
+
+```{r}
+N_CAS_Site_Acute <- N_CAS_Site_1 %>% mutate(test="Acute")
+Nclass_Acute <- Nclass_1 %>% mutate(test="Acute")
+Res_Acute <- Res_1 %>% mutate(MCR=MCR.HC50.Acute.EC50,HI=HI_Acute,Group_AF1=Group_AF1_Acute)%>% mutate(test="Acute")
+
+```
+
+
+```{r}
+N_CAS_Site$y <- 8
+
+
+Nclass <- Res %>% group_by(LOQ.type,Exclusion.CAS,Group_AF1_Chronic) %>% summarise(N=length(monitoringSiteIdentifier))%>% left_join(N_CAS_Site[,c("LOQ.type","Exclusion.CAS","N.Sample")])%>% mutate(Perc=N/N.Sample*100)
+Nclass1 <- Nclass %>% filter(Group_AF1_Chronic=="IIIA" | Group_AF1_Chronic =="IIIB")%>% group_by(LOQ.type,Exclusion.CAS) %>% summarise(Perc=sum(Perc)) %>% mutate(Group="III")
+
+Nclass <- rbind(Nclass1,Nclass[,c("LOQ.type","Exclusion.CAS","Perc","Group_AF1_Chronic")]%>%rename(Group=Group_AF1_Chronic)%>%filter(Group=="I"|Group=="II"))
+
+df1 <- data.frame(x=1e-6,y=4,Label="No concern",Group="II")
+df1 <- rbind(df1,data.frame(x=50,y=5,Label="Single Substance Risk",Group="I"))
+df1 <- rbind(df1,data.frame(x=5,y=9,Label="Multiple Chemicals Risk",Group="III"))
+Nclass <- Nclass %>% left_join(df1)
+Nclass_1 <- Nclass%>% filter(LOQ.type=="LOQ.T0" & Exclusion.CAS != "Excluded_None")%>% droplevels(.)
+
+ggplot(Res_1,aes(x=HI_Chronic,y=MCR.HC05.Chronic.NOEC))+geom_point(aes(col=Group_AF1_Chronic))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust="inward")  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(LOQ.type~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom")
+
+# ggplot(Res_1,aes(x=HI_Chronic,y=MCR.HC05.Chronic.NOEC))+geom_point(aes(col=Group_AF1_Chronic))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust="inward")  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(Exclusion.CAS~LOQ.type,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom")
+
+if(interactive()){
+  ggsave("inst/manuscript_cutoff_10measured/Figure1-Chronic.png",width = 15,height=8,dpi=300)
+}
+```
+
+
+```{r}
+N_CAS_Site_Chronic <- N_CAS_Site_1 %>% mutate(test="Chronic")
+Nclass_Chronic <- Nclass_1 %>% mutate(test="Chronic")
+Res_Chronic <- Res_1 %>% mutate(MCR=MCR.HC05.Chronic.NOEC,HI=HI_Chronic,Group_AF1=Group_AF1_Chronic)%>% mutate(test="Chronic")
+
+```
+
+
+```{r}
+N_CAS_Site_1 <- rbind(N_CAS_Site_Acute,N_CAS_Site_Chronic)
+ Nclass_1 <- rbind(Nclass_Acute,Nclass_Chronic)
+ Res_1 <- rbind(Res_Acute,Res_Chronic)
+ # Res_1$Group_AF1 <- NA
+ # Res_1$Group_AF1[Res_1$test=="Acute"] <- Res_1$Group_AF1_Acute[Res_1$test=="Acute"]
+ # Res_1$Group_AF1[Res_1$test=="Chronic"] <- Res_1$Group_AF1_Chronic[Res_1$test=="Chronic"]
+ Res_1 <- Res_1 %>% rename(Group=Group_AF1)
+ ggplot(Res_1,aes(x=HI,y=MCR))+geom_point(aes(col=Group))+geom_text(data=N_CAS_Site_1,aes(x=x,y=y*0.95,label=paste0("N.Site = ",N.Site,"\nN.CAS = ",N.CAS,"\nN.Sample = ",N.Sample)))+geom_text(data=Nclass_1,aes(x=x,y=y*0.8,label=paste0(Group,"\n",formatC(Perc,digits = 2,format="f"),"%")),vjust=1,hjust=0.8)  +scale_x_log10()+geom_vline(xintercept = 1)+facet_grid(test~Exclusion.CAS,scale="free")+ annotate("rect", xmin = 1e-10, xmax = 1, ymin = recting[1,3], ymax = recting[1,4],fill="yellow",alpha=0.2)+geom_line(data=data.frame(x=seq(1,10,length=100),y=seq(1,10,length=100)),aes(x=x,y=y))+scale_y_continuous(limits=(c(1,10)),expand = c(0,0))+theme(legend.position = "bottom",strip.text.x = element_text(size =12),strip.text.y = element_text(size = 12))
+ggsave("inst/manuscript_cutoff_10measured/Figure1-final.png",width = 9,height=6,dpi=300)
+if(interactive()){
+  ggsave("inst/manuscript_cutoff_10measured/Figure1.png",width = 15,height=8,dpi=300)
+}
+```
+

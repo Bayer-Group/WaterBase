@@ -1,0 +1,96 @@
+---
+title: "Code Check"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(beemixtox)
+```
+
+
+It feels strange that in Figure 4b, the different subsets would produce different sets of driver substances and their rankings. 
+
+Figure 4b. Needs revision to ensure all is correct. If you compare “Figure4b-Chronic-Current_Use.png" and “Figure4b-Chronic-Excluded_Metals.png",  I see there are some chemicals missing that should appear at the top of the ranking in “Figure4b-Chronic-Excluded_Metals.png", Such as Ibuprofen, Erythromycin, diclofenac, and Ethinylstradiol. See what part of the dataset you are restricting when limiting to 40 (if the head or the tail).
+
+
+- For driver substances, for example, Ibuprofen . 
+
+```{r}
+"Ibuprofen" %in% chemclass$Substance
+
+chemclass %>% filter(Substance=="Ibuprofen")
+Ibuprofen <- casdata %>% filter(Substance=="Ibuprofen")
+```
+
+- Excluded Metals
+
+```{r}
+table(driverdata$Exclusion.CAS)
+
+
+driver_Ibuprofen <- driverdata %>% filter(Exclusion.CAS=="Excluded_Metals" & LOQ.type=="LOQ.T0" & test=="Chronic" & CAS=="15687271")
+table(driver_Ibuprofen$Component)
+Data.AggBySiteID.3a <-  preprocessWaterbase(Data.AggBySiteID.2,chemclass,LOQ.type = "LOQ.T0",
+                                                Data.SSD.1 = Data.SSD.1,Exclusion.CAS= "Excluded_Metals",
+                                                HU=F,PAF=F)
+
+driver_Ibuprofen <-driver_Ibuprofen %>% left_join(Data.AggBySiteID.3a)%>% mutate(HC05.Chronic= 10^qnorm(0.05,Ibuprofen$SSDLOG10.Mu.chronic.NOEC, Ibuprofen$SSDLOG10.Sigma.chronic.NOEC)) %>% mutate(HQ.Chronic=resultMeanValue/HC05.Chronic)
+plot(density(driver_Ibuprofen$HQ.Chronic))
+skimr::skim(driver_Ibuprofen$HQ.Chronic)
+quantile(driver_Ibuprofen$HQ.Chronic,c(0,0.25,0.5,0.75,0.95,1))
+
+
+HQdata <- getHQData_Chronic(Data.AggBySiteID.2,chemclass=chemclass,Data.SSD.1=Data.SSD.1,LOQ.type= c("LOQ.T0"),driverdata,Exclusion.CAS="Excluded_Metals")
+sumCAS <- HQdata %>% mutate(test="Chronic") %>%group_by(LOQ.type,test)%>%mutate(nSample=length(unique(Site.Year))) %>% group_by(LOQ.type,test,CAS,nSample) %>%nest() %>% mutate(nappear=purrr::map(data,nrow),QI=purrr::map(data,function(df) quantile(df$HQ.Chronic,c(0.25,0.5,0.75,0.95,1))))%>% unnest(cols=c(nappear,QI))%>% mutate(freq=nappear/nSample ) %>% select(-data) %>% mutate(Quantile=c("25%","50%","75%","95%","100%"))%>% group_by(LOQ.type,test,CAS)%>% mutate(q95=QI[Quantile=="95%"])%>% filter(q95>0.01)%>% group_by(LOQ.type,test)%>%nest()%>%mutate(data=purrr::map(data,function(df){df <- df %>% group_by(CAS,q95) %>% nest()
+    df <- df[order(df$q95,decreasing = T),]
+    df <- df %>% add_column(x=1:nrow(df))
+    df <- df %>% unnest(cols=c(data))
+    return(df)
+  }))%>%unnest(cols = c(data))%>%ungroup #
+sumCAS %>% filter(CAS=="15687271")   
+```
+
+
+
+
+```{r}
+driver_Ibuprofen <- driverdata %>% filter(Exclusion.CAS=="Current_Use" & LOQ.type=="LOQ.T0" & test=="Chronic" & CAS=="15687271")
+table(driver_Ibuprofen$Component)
+Data.AggBySiteID.3a <-  preprocessWaterbase(Data.AggBySiteID.2,chemclass,LOQ.type = "LOQ.T0",
+                                                Data.SSD.1 = Data.SSD.1,Exclusion.CAS= "Current_Use",
+                                                HU=F,PAF=F)
+
+driver_Ibuprofen <-driver_Ibuprofen %>% left_join(Data.AggBySiteID.3a)%>% mutate(HC05.Chronic= 10^qnorm(0.05,Ibuprofen$SSDLOG10.Mu.chronic.NOEC, Ibuprofen$SSDLOG10.Sigma.chronic.NOEC)) %>% mutate(HQ.Chronic=resultMeanValue/HC05.Chronic)
+plot(density(driver_Ibuprofen$HQ.Chronic))
+skimr::skim(driver_Ibuprofen$HQ.Chronic)
+quantile(driver_Ibuprofen$HQ.Chronic,c(0,0.25,0.5,0.75,0.95,1))
+
+
+HQdata <- getHQData_Chronic(Data.AggBySiteID.2,chemclass=chemclass,Data.SSD.1=Data.SSD.1,LOQ.type= c("LOQ.T0"),driverdata,Exclusion.CAS="Current_Use")
+sumCAS <- HQdata %>% mutate(test="Chronic") %>%group_by(LOQ.type,test)%>%mutate(nSample=length(unique(Site.Year))) %>% group_by(LOQ.type,test,CAS,nSample) %>%nest() %>% mutate(nappear=purrr::map(data,nrow),QI=purrr::map(data,function(df) quantile(df$HQ.Chronic,c(0.25,0.5,0.75,0.95,1))))%>% unnest(cols=c(nappear,QI))%>% mutate(freq=nappear/nSample ) %>% select(-data) %>% mutate(Quantile=c("25%","50%","75%","95%","100%"))%>% group_by(LOQ.type,test,CAS)%>% mutate(q95=QI[Quantile=="95%"])%>% filter(q95>0.01)%>% group_by(LOQ.type,test)%>%nest()%>%mutate(data=purrr::map(data,function(df){df <- df %>% group_by(CAS,q95) %>% nest()
+    df <- df[order(df$q95),]
+    df <- df %>% add_column(x=1:nrow(df))
+    df <- df %>% unnest(cols=c(data))
+    return(df)
+  }))%>%unnest(cols = c(data))%>%ungroup #
+sumCAS %>% filter(CAS=="15687271")   
+
+# # A tibble: 5 x 10
+#   LOQ.type test    CAS        q95 nSample nappear    QI  freq Quantile     x
+#   <chr>    <chr>   <chr>    <dbl>   <int>   <int> <dbl> <dbl> <chr>    <int>
+# 1 LOQ.T0   Chronic 15687271  1.15    5506     903 0.101 0.164 25%         19
+# 2 LOQ.T0   Chronic 15687271  1.15    5506     903 0.182 0.164 50%         19
+# 3 LOQ.T0   Chronic 15687271  1.15    5506     903 0.339 0.164 75%         19
+# 4 LOQ.T0   Chronic 15687271  1.15    5506     903 1.15  0.164 95%         19
+# 5 LOQ.T0   Chronic 15687271  1.15    5506     903 5.69  0.164 100%        19
+# > quantile(driver_Ibuprofen$HQ.Chronic,c(0,0.25,0.5,0.75,0.95,1))
+#         0%        25%        50%        75%        95%       100% 
+# 0.08703508 0.40400597 0.67887364 1.10215788 1.80128894 5.68991848 
+```
+

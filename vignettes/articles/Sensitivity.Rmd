@@ -1,0 +1,191 @@
+---
+title: "Sensitivity"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+#cleaning the environemt
+rm(list=ls())
+library(WaterBase)
+data("chemclass")
+data("Data.AggBySiteID.2")
+data("allcas")
+```
+
+
+```{r}
+caslist <-NULL
+res <- NULL
+table_res <- NULL
+k <-1
+for(i in c(1,3,5)){
+  for(j in c(1,3,5,10)){
+    tmp <- data_prepare_2(NSample.Year = i,Nchemicals.Year = j)
+    res<- rbind(res,data.frame(NSample.Year=i,NChem.Year=j,tmp$data_prep[15,]))
+    table_chr <- getCEFIC_MIAT(Data.AggBySiteID.2=tmp$Data.AggBySiteID.2,
+                     chemclass=chemclass,LOQ.type="LOQ.T0",
+                     Exclusion.CAS="Excluded_Metals")
+    table_res <- rbind(table_res,data.frame(NSample.Year=i,NChem.Year=j,table_chr))
+    tmpcas <- unique(tmp$Data.AggBySiteID.2$CAS)
+    caslist[[k]] <- allcas[!(allcas %in% tmpcas)]
+    k <- k+1
+  }
+  
+}
+```
+
+```{r}
+res %>% knitr::kable(.) %>% kableExtra::kable_classic(.)
+```
+
+
+```{r}
+table_res %>% knitr::kable(.) %>% kableExtra::collapse_rows(.)%>%kableExtra::kable_classic(.)
+```
+
+
+
+```{r fig.cap=c("Figure SM 6. Sensitivity analysis of the influence of “NSample.Year” and “NChem.Year” on the % of samples ","Figure SM 7. ")}
+p1 <- ggplot(table_res,aes(x=NSample.Year,y=as.numeric(gsub("%","",Perc.Mean)),col=factor(NChem.Year)))+geom_point()+facet_wrap(~Group_AF1_Chronic,scales = "free_y")+ylab("% based on mean")
+p1
+if(interactive()){
+  ggsave("inst/SM/FigureSM6_sensi_mean.png",width = 7,height=5,dpi=300)
+  ggsave("inst/SM/FigureSM6_sensi_mean.pdf",width = 7,height=5)
+  # cairo_ps("inst/SM/sensi_mean.eps",width = 7)
+  # p1
+  # dev.off()
+}
+
+p1 <- ggplot(table_res,aes(x=NSample.Year,y=as.numeric(gsub("%","",Perc.Max)),col=factor(NChem.Year)))+geom_point()+facet_wrap(~Group_AF1_Chronic,scales = "free_y")+ylab("% based on max")
+p1
+if(interactive()){
+  ggsave("inst/SM/FigureSM7_sensi_max.png",width = 7,height=5,dpi=300)
+  ggsave("inst/SM/FigureSM7_sensi_max.pdf",width = 7,height=7)
+  # cairo_ps("inst/SM/sensi_max.eps",width = 7)
+  # p1
+  # dev.off()
+}
+
+```
+
+
+```{r}
+caslist <- lapply(caslist,webchem::as.cas)
+caslist <- lapply(caslist,function(x) {
+  ids <- sapply(Data.SSD$CAS,function(y) y%in% x)
+  Data.SSD$Substance[ids]
+  })
+
+```
+
+
+
+
+```{r}
+table_cas <- data.frame(NSample.Year=NA,NChemical.Year=NA,cas=NA)
+k <-1
+for(i in c(1,3,5)){
+  for(j in c(1,3,5,10)){
+    table_cas[k,] <- data.frame(NSample.Year=i,NChemical.Year=j,cas=paste(caslist[[k]],collapse = ", "))
+    k <- k+1   
+  }
+}
+```
+
+```{r}
+table_cas %>% knitr::kable(.) %>% kableExtra::kable_classic(.)
+```
+
+
+
+```{r}
+if(interactive()) {
+  sensi_res <- res
+  #save(sensi_res,file="data/sensi_res.rda")
+  usethis::use_data(sensi_res,overwrite = T)
+}
+
+if(interactive()) save(table_res,file="data/sensi_table.rda")
+if(interactive()) save(caslist,file="data/sensi_cas.rda")
+```
+
+## Quantiles for the excluded Substances
+
+
+```{r}
+load("data/sensi_cas.rda")
+caslist
+cases <- caslist[[12]]
+
+cases <- Data.SSD$CAS[Data.SSD$Substance %in% cases]
+
+
+## Look at the original Data.
+cases %in% webchem::as.cas(Data.AggBySiteID$CAS)
+
+```
+
+
+```{r}
+dat <- Data.AggBySiteID %>% filter(webchem::as.cas(CAS) %in% cases)
+dim(dat) ## 337*33
+if(interactive()) save(dat,file="data/sensi_cas_rm.rda")
+load("data/sensi_cas_rm.rda")
+```
+
+
+```{r}
+dat %>% group_by(CAS) %>% summarise(N.Sample=length(CAS),N.Site=length(unique(monitoringSiteIdentifier)))
+summaryN <- function(x){
+  nsum <- quantile(x,c(0,0.25,0.5,0.75,0.95,1),na.rm = T)
+  nsum <- c(nsum[1:3],mean(x,na.rm = T),nsum[4:6])
+  names(nsum)[4] <- "mean"
+  nsum <- as.data.frame(t(nsum))  
+  return(nsum)
+}
+dat %>% group_by(CAS) %>% nest() %>% mutate(nsum=map(data,~summaryN(.x$resultMeanValue)))%>% select(-data)%>% unnest(cols=c(nsum)) %>%  dplyr::mutate_at(c("0%","25%",  "50%" , "mean", "75%" , "95%", "100%"),~as.character(format(.,digits = 2,scientific = T)))%>%
+  knitr::kable(.) %>% kableExtra::kable_classic() 
+
+## Calculate the HQ
+
+dat <- dat%>% left_join(Data.SSD%>%mutate(CAS.=as.character(CAS.)),by=c("CAS"="CAS."))
+
+data.table::setnames(dat,old =c("X10LogSSDMedianConcentration.ug.L..MuAcute.EC50","X10LogSSDMedianConcentration.ug.L..MuChronic.NOEC", "X10LogSSDSlope.ug.L..SigmaAcute.EC50","X10LogSSDSlope.ug.L..SigmaChronic.NOEC"),
+                       new=c("SSDLOG10.Mu.Acute.EC50", "SSDLOG10.Mu.chronic.NOEC", "SSDLOG10.Sigma.Acute.EC50","SSDLOG10.Sigma.chronic.NOEC")
+  )
+  #Hazard.Index to the midpoint SSD by chem (reference to the HC05)
+  #Hazard.Index to the HC05 SSD by chem
+  # Taken from: https://edild.github.io/ssd/
+  # Will use compoud-specific slopes. Assuming 0.7 SSD slope is quite worst case (as how the data comes out)
+
+  #Compute HC05 by chemical ############################################################################
+  #The mu and sig parameters are given in log10 units!
+  dat$HC50.Acute = 10^qnorm(0.5,dat$SSDLOG10.Mu.Acute.EC50, dat$SSDLOG10.Sigma.Acute.EC50)
+  dat$HC05.Chronic = 10^qnorm(0.05,dat$SSDLOG10.Mu.chronic.NOEC, dat$SSDLOG10.Sigma.chronic.NOEC)
+  useAllMean <- TRUE
+  useAllMax <- FALSE
+   if(!useAllMean){
+    dat$HQ.Acute = dat$resultMaximumValue/dat$HC50.Acute
+  }else{
+    dat$HQ.Acute = dat$resultMeanValue/dat$HC50.Acute
+  }
+  if(!useAllMax){
+    dat$HQ.Chronic = dat$resultMeanValue/dat$HC05.Chronic
+  }else{
+    dat$HQ.Chronic = dat$resultMaximumValue/dat$HC05.Chronic
+  }
+  
+dat %>% group_by(Substance) %>% nest() %>% mutate(nsum=map(data,~summaryN(.x$HQ.Chronic)))%>% select(-data)%>% unnest(cols=c(nsum)) %>%  dplyr::mutate_at(c("0%","25%",  "50%" , "mean", "75%" , "95%","100%"),~as.character(format(.,digits = 2,scientific = T)))%>%knitr::kable(.) %>% kableExtra::kable_classic()
+```
+
+
+```{r}
+dat %>% group_by(Substance) %>% nest() %>% mutate(nsum=map(data,~summaryN(.x$HQ.Acute)))%>% select(-data)%>% unnest(cols=c(nsum)) %>%  dplyr::mutate_at(c("0%","25%",  "50%" , "mean", "75%" , "95%","100%"),~as.character(format(.,digits = 2,scientific = T)))%>%knitr::kable(.) %>% kableExtra::kable_classic()
+```
+

@@ -1,0 +1,113 @@
+---
+title: "SM Tables"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval=FALSE
+)
+```
+
+```{r setup}
+library(WaterBase)
+```
+
+In this file the code for generating tables listed in SM are documented. 
+
+Some of the tables are very big and therefore not stored in the repo. Tables can be submitted to be used by interested reasearchers for additional analysis of the dataset. 
+
+## SM2: List of Chemicals included in the analysis (name, CAS, chemical class, regulatory status)
+
+```{r}
+sm2 <- chemclass %>% select(c(CAS.y,Substance,Chem.Group,class1))
+write.csv(sm2,file="inst/SM/sm2.csv")
+```
+
+
+## SM 3: Summary Data per CAS
+
+summary per CAS, based on mean and max
+
+```{r}
+library(broom)
+
+casdata <- getCasData(Data.AggBySiteID.2,chemclass,Data.SSD.1,Exclusion.CAS = "Excluded_None")
+casdata$Type <- factor(casdata$Type,levels=c("I","H","F",""))
+casdata$Chem.Group <- factor(casdata$Chem.Group,levels=c("Industrial", "Metal", "PAH", "Pest", "Pharma"))
+
+
+write.csv(casdata[,c(41,42,2:40,64,65)],"inst/SM/SM3_casdata_rawConc.csv")
+
+```
+
+
+```{r}
+
+casdata <- getCasData(Data.AggBySiteID.2,chemclass,Data.SSD.1,Exclusion.CAS = "Refined_HQ_Metals_PAH")
+casdata$Type <- factor(casdata$Type,levels=c("I","H","F",""))
+casdata$Chem.Group <- factor(casdata$Chem.Group,levels=c("Industrial", "Metal", "PAH", "Pest", "Pharma"))
+write.csv(casdata[,c(41,42,2:40,64,65)],"inst/SM/SM3_casdata_Refined_HQ_Metals_PAH.csv")
+```
+
+
+## SM4: HI MCR data per sample
+
+The sample data are stored below
+
+```
+inst/SM/Data_sample_Mean.csv
+```
+
+```
+inst/SM/Data_sample_Max.csv
+```
+
+```{r eval=F}
+Res_Max <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                      Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),Data.SSD.1=Data.SSD.1,useAllMax=T)
+Res_Mean <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                       Exclusion.CAS = c("Excluded_None","Refined_HQ_Metals_PAH","Excluded_Metals","Current_Use"),Data.SSD.1=Data.SSD.1,useAllMean=T)
+
+Res_Mean_1 <- Res_Mean %>% select(-(HU_Sum_Acute:PAF_Max_Chronic))%>%select(-contains("Acute"))%>%select(-contains("msPAF"))
+Res_Max_1 <- Res_Max %>% select(-(HU_Sum_Acute:PAF_Max_Chronic))%>%select(-contains("Acute"))%>%select(-contains("msPAF"))
+write.csv(Res_Mean_1,file="inst/SM/Data_sample_Mean_cleaned.csv")
+write.csv(Res_Max_1,file="inst/SM/Data_sample_Max_cleaned.csv")
+
+```
+
+
+ 
+## SM 5: Intermediate data
+
+The two blocks below generate the intermediate data with the waterbase data after curation, adding SSD, excluding acute information,calculating HQ with both mean and max,  for original raw data, refined PAH and metals, and refined excluding metals(metals NA).
+
+
+```{r eval=F}
+Data_Excluded_None <- preprocessWaterbase(Data.AggBySiteID.2,chemclass, LOQ.type="LOQ.T0",Data.SSD.1 = Data.SSD.1,Exclusion.CAS = "Excluded_None")[,c(1:16,18,20)]%>% rename(HQ.Chronic.Mean=HQ.Chronic)
+tmp <- preprocessWaterbase(Data.AggBySiteID.2,chemclass, LOQ.type="LOQ.T0",Data.SSD.1 = Data.SSD.1,Exclusion.CAS = "Excluded_None",useAllMax = T)
+Data_Excluded_None <- cbind(Data_Excluded_None,HQ.Chronic.Max=tmp[,20])
+Data_Excluded_None$CAS <- webchem::as.cas(Data_Excluded_None$CAS)
+write.csv(Data_Excluded_None,file="inst/SM/Data_Excluded_None.csv")
+```
+
+
+```{r eval=F}
+Data_Refined_HQ_Metals_PAH <- preprocessWaterbase(Data.AggBySiteID.2,chemclass, LOQ.type="LOQ.T0",Data.SSD.1 = Data.SSD.1,Exclusion.CAS = "Refined_HQ_Metals_PAH")[,c(1:16,18,20)]%>% rename(HQ.Chronic.Mean=HQ.Chronic)
+tmp <- preprocessWaterbase(Data.AggBySiteID.2,chemclass, LOQ.type="LOQ.T0",Data.SSD.1 = Data.SSD.1,Exclusion.CAS = "Refined_HQ_Metals_PAH",useAllMax = T)
+Data_Refined_HQ_Metals_PAH <- cbind(Data_Refined_HQ_Metals_PAH,HQ.Chronic.Max=tmp[,20])
+Data_Refined_HQ_Metals_PAH$CAS <- webchem::as.cas(Data_Refined_HQ_Metals_PAH$CAS)
+write.csv(Data_Refined_HQ_Metals_PAH,file="inst/SM/Data_Refined_HQ_Metals_PAH.csv")
+```
+
+
+```{r eval=F}
+Data_Excluded_Metals <- preprocessWaterbase(Data.AggBySiteID.2,chemclass, LOQ.type="LOQ.T0",Data.SSD.1 = Data.SSD.1,Exclusion.CAS = "Excluded_Metals")[,c(1:16,18,20)]%>% rename(HQ.Chronic.Mean=HQ.Chronic)
+tmp <- preprocessWaterbase(Data.AggBySiteID.2,chemclass, LOQ.type="LOQ.T0",Data.SSD.1 = Data.SSD.1,Exclusion.CAS = "Excluded_Metals",useAllMax = T)
+Data_Excluded_Metals <- cbind(Data_Excluded_Metals,HQ.Chronic.Max=tmp[,20])
+Data_Excluded_Metals$CAS <- webchem::as.cas(Data_Excluded_Metals$CAS)
+write.csv(Data_Excluded_Metals,file="inst/SM/Data_Excluded_Metals.csv")
+```
+
+

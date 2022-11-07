@@ -1,0 +1,67 @@
+---
+title: "Data and Code Check"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(WaterBase)
+```
+
+
+```{r}
+library(quantreg)
+library(tidyverse)
+library(scales)
+library(ggthemes) ## for color blind palettes
+data("Data.AggBySiteID.2")
+tmp1 <- Data.AggBySiteID.2 %>% group_by(Site.Year) %>% summarise(N=length(Site.Year)) %>% mutate(n1=mean(N))
+data("Data.SSD")
+data("chemclass")
+CAS.SSD = unique(Data.AggBySiteID.2$CAS)[unique(Data.AggBySiteID.2$CAS)%in%as.character(unique(Data.SSD$CAS.))]
+Data.SSD.1 = Data.SSD[Data.SSD$CAS.%in%CAS.SSD,]; Data.SSD.1 = droplevels(Data.SSD.1)
+```
+
+
+```{r}
+Res_Mean <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                       Exclusion.CAS = c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use"),Data.SSD.1=Data.SSD.1,useAllMean=T)
+```
+
+
+```{r}
+Res_Mean%>%filter(LOQ.type=="LOQ.T0" )%>% filter(HI_Chronic>1)%>% group_by(Exclusion.CAS) %>% summarise(nsample=length(Site.Year),nsample10=length(Site.Year[Nmeasured>10]))
+```
+
+
+
+```{r}
+Res_Max <- getResData(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0","LOQ.T1"),
+                      Exclusion.CAS = c("Excluded_None","Refined_Metals_PAH","Excluded_Metals","Current_Use"),Data.SSD.1=Data.SSD.1,useAllMax=T)
+```
+
+```{r}
+Res_Max%>%filter(LOQ.type=="LOQ.T0" )%>% filter(HI_Chronic>1)%>% group_by(Exclusion.CAS) %>% summarise(nsample=length(Site.Year),nsample10=length(Site.Year[Nmeasured>10]))
+```
+
+
+
+```{r}
+threshold <- 1
+cutoff <- 0
+fig3 <- gen_fig3_wrapper(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_Metals_PAH", "Excluded_Metals","Current_Use"), Data.SSD.1=Data.SSD.1,threshold = 1,include0=F,cutoff = 0)
+```
+
+
+```{r}
+fig3.10 <- gen_fig3_wrapper(Data.AggBySiteID.2,chemclass,LOQ.type = c("LOQ.T0"), Exclusion.CAS = c("Refined_Metals_PAH", "Excluded_Metals","Current_Use"),
+                         Data.SSD.1,threshold = 1,include0=F,cutoff=10)
+fig3.10
+```
+
+
