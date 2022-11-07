@@ -1,7 +1,6 @@
 # WaterBase
 
 
-
 This is an R package for reproducing the Waterbase data analysis and the results for manuscript.
 
 ## Data
