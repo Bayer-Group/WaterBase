@@ -3,6 +3,8 @@
 
 This is an R package for reproducing the Waterbase data analysis and the results for manuscript.
 
+This repository follows the principles of reproducible research (Peng, 2011).
+
 ## Data
 
 - Raw data handling is located in ./data-raw
